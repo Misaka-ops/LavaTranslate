@@ -19,21 +19,17 @@ import {
   type Display,
   type WebContents
 } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
 import {
+  DEEPSEEK,
   LANGUAGES,
-  providerInfo,
   type CaptureFrame,
   type EngineStatus,
   type OcrLine,
-  type ModelInfo,
   type ReplyEvent,
   type ReplyStartMsg,
-  type OpenAISource,
   type PinPayload,
-  type ProviderId,
   type Rect,
   type Settings,
   type SettingsPatch,
@@ -41,19 +37,16 @@ import {
   type TranslateRequestMsg
 } from '../shared/types'
 import { captureAll, cropRgba, rgbaToBgra, type DisplayCapture } from './capture'
-import { chatgptSession, findOpenAISources, resolveProvider } from './credentials'
-import { detectProvider } from '../core/detect'
+import { resolveProvider } from './credentials'
 import { langFor } from '../core/lang'
 import { setPlatform } from '../core/platform'
 import { PaddleOcr } from './ocr'
 import { matchesTargetLanguage } from './ocr-language'
-import { refreshPrices, sortByPrice } from './pricing'
 import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateState } from './updater'
 import { settings } from './settings'
-import { submitOfflineVote } from './offline-survey'
 import { secretLocked } from './secrets'
 import { errorText, t, uiLang } from './i18n'
-import { langBase, providerName, UI_LANGS } from '../shared/i18n'
+import { langBase, UI_LANGS } from '../shared/i18n'
 import { focusWindowAt, forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
 import { configureMacOverlay, ensureKeyMonitoring, ensureScreenCapture, isMac, macSpaceDown, macSettingsStatus, openMacSettings } from './macos'
 import { acceleratorLabel } from '../shared/hotkeys'
@@ -61,8 +54,7 @@ import { PIN_COMPACT_SIZE, PIN_MARGIN } from '../shared/pin'
 import { macUpdateText } from '../shared/mac-update'
 import { WinSpaceHotkey } from './win-space'
 import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
-import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, SignInExpired, signIn as signInChatGPT } from './chatgpt'
-import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runI18nShots, runPassTest, runReview, runSignInTest } from './devtest'
+import { FixtureEngine, MockEngine, runAutotest, runEngineTest, runI18nShots, runPassTest, runReview } from './devtest'
 import { EventEmitter } from 'node:events'
 import { logError } from './diagnostics'
 
@@ -122,6 +114,9 @@ function loadPage(win: BrowserWindow, page: 'overlay' | 'settings' | 'pin') {
   }
   if (isDev && process.env.ELECTRON_RENDERER_URL) win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/${page}.html`)
   else win.loadFile(join(__dirname, `../renderer/${page}.html`))
+  if (process.env.LENS_DIAGNOSTIC) {
+    win.webContents.on('console-message', (event) => diag('renderer', page, event.message))
+  }
 }
 
 // ------------------------------------------------------------------ 引擎
@@ -132,92 +127,28 @@ function buildEngine(s: Settings): Engine | null {
   return engine
 }
 
-/** 按当前服务创建引擎；没填 Key 或没选模型时返回 null */
-function engineFor(s: Settings, id = s.provider): Engine | null {
-  const r = resolveProvider(s, id)
-  if (!r || !r.model) return null
-  return new OpenAIEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, r.model, { api: r.info.api, chatExtra: r.info.chatExtra })
-}
-
-/**
- * 正在进行的刷新，同时发起的请求共用这一次：refresh token 每刷新一次就换新、旧的作废，
- * 两个请求各拿旧 token 刷新会被当成重复使用，OpenAI 可能因此吊销整个登录
- */
-let refreshing: Promise<string | null> | null = null
-
-/**
- * ChatGPT 登录：令牌快过期时先刷新再用；force 表示令牌被拒，不管有效期都刷新一次。
- * 返回 null 表示可以继续，否则是显示给用户的原因
- */
-function ensureFreshToken(id = settings.get().provider, force = false): Promise<string | null> {
-  if (id !== 'chatgpt') return Promise.resolve(null)
-  refreshing ??= refreshChatGPTToken(force).finally(() => (refreshing = null))
-  return refreshing
-}
-
-async function refreshChatGPTToken(force: boolean): Promise<string | null> {
-  const s = settings.get()
-  const sess = chatgptSession(s)
-  if (!sess) return null
-  if (s.providers.chatgpt?.expired) return t('chatgpt.expired')
-  if (!force && sess.expiresAt - Date.now() > 120_000) return null
-  // 刷新期间重新登录或退出了：结果属于旧登录，不能覆盖
-  const stillCurrent = () => chatgptSession(settings.get())?.refreshToken === sess.refreshToken
-  try {
-    const next = await refreshChatGPT(sess)
-    if (stillCurrent()) settings.update({ providers: { chatgpt: { key: JSON.stringify(next) } } })
-    return null
-  } catch (e) {
-    logError('chatgpt refresh', e)
-    if (!stillCurrent()) return null
-    if (e instanceof SignInExpired) {
-      // 登录信息留着（重新登录时沿用 client_id、预填账号），只是标记失效，设置页据此提示重新登录
-      settings.update({ providers: { chatgpt: { expired: true } } })
-      return t('chatgpt.expired')
-    }
-    // 网络等临时问题：登录还在，令牌没过期就继续用，过期了只能稍后再试
-    if (!force && sess.expiresAt > Date.now()) return null
-    return t('chatgpt.refreshFailed', { msg: e instanceof Error ? e.message : String(e) })
-  }
-}
-
-/** 用 ChatGPT 登录时令牌被拒（401）：强制刷新一次。刷新得了说明登录还在，提示重试；刷新不了就是登录已失效 */
-async function chatgptAuthProblem(err: unknown): Promise<string | null> {
-  if (!(err instanceof TranslateError) || err.code !== 'auth' || settings.get().provider !== 'chatgpt') return null
-  return (await ensureFreshToken('chatgpt', true)) ?? t('chatgpt.reverified')
+/** 按当前配置创建 DeepSeek 引擎；没填 Key 时返回 null */
+function engineFor(s: Settings): Engine | null {
+  const r = resolveProvider(s)
+  if (!r) return null
+  return new OpenAIEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, r.model, { chatExtra: DEEPSEEK.chatExtra })
 }
 
 function engineStatus(): EngineStatus {
   const s = settings.get()
-  const info = providerInfo(s.provider)
-  if (secretLocked(s.providers[info.id]?.key ?? '')) {
-    return { provider: info.id, ok: false, locked: true, detail: uiLang().startsWith('zh')
-      ? '旧版 Key 已加密，请重新填写一次 API Key。'
-      : 'Your old key is encrypted. Enter your API key again.' }
+  if (secretLocked(s.providers.deepseek?.key ?? '')) {
+    return {
+      provider: 'deepseek',
+      ok: false,
+      locked: true,
+      detail: uiLang().startsWith('zh')
+        ? '旧版 Key 已加密，请重新填写一次 API Key。'
+        : 'Your old key is encrypted. Enter your API key again.'
+    }
   }
   const r = resolveProvider(s)
-  if (!r)
-    return {
-      provider: info.id,
-      ok: false,
-      detail:
-        info.id === 'chatgpt'
-          ? s.providers.chatgpt?.expired
-            ? t('chatgpt.expired')
-            : t('status.noChatGPT')
-          : info.id === 'custom' && s.providers.custom?.key ? t('status.noBaseUrl') : t('status.noKey')
-    }
-  if (!r.model) return { provider: info.id, ok: false, detail: t('status.noModel', { name: providerName(info.id, uiLang()) }) }
-  let where = providerName(info.id, uiLang())
-  if (info.id === 'custom' || s.providers[info.id]?.baseUrl) {
-    try {
-      where = new URL(r.baseURL).host
-    } catch {
-      where = r.baseURL
-    }
-  }
-  if (info.id === 'chatgpt') where = t('status.plan', { who: s.providers.chatgpt?.label || t('status.signedIn') })
-  return { provider: info.id, ok: true, detail: `${r.model} · ${where}` }
+  if (!r) return { provider: 'deepseek', ok: false, detail: t('status.noKey') }
+  return { provider: 'deepseek', ok: true, detail: `${r.model} · DeepSeek` }
 }
 
 // ------------------------------------------------------------------ 遮罩窗口
@@ -333,7 +264,19 @@ function startQuick() {
   if (!overlayActive) void startCapture()
 }
 
+function diag(...args: unknown[]) {
+  if (!process.env.LENS_DIAGNOSTIC) return
+  const line = `${new Date().toISOString()} ${args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')}`
+  console.log('[diag]', line)
+  try {
+    appendFileSync(join(app.getPath('temp'), 'lava-diag.log'), line + '\n')
+  } catch {
+    /* 忽略 */
+  }
+}
+
 async function startCapture() {
+  diag('startCapture', { overlayActive, hiding: !!hiding })
   tHotkey = Date.now()
   refocus = false
   if (overlayActive) {
@@ -346,7 +289,7 @@ async function startCapture() {
   overlayActive = true
   // The native worker owns this short lease, even if capture blocks the main loop.
   if (process.platform === 'win32' && !AUTOTEST) {
-    await winSpace.setCaptureSpace(true, 3000)
+    await winSpace.setCaptureSpace(true, 10_000)
     if (generation !== captureGeneration || !overlayActive) return
   }
   if (releaseTimer) clearTimeout(releaseTimer)
@@ -412,6 +355,7 @@ function presentCaptures(caps: DisplayCapture[], refresh = false) {
 /** 渲染进程画好截图后才显示窗口，避免闪出上一帧 */
 ipcMain.on('overlay:frame-ready', (e) => {
   const o = overlayOf(e.sender)
+  diag('frame-ready', { display: o?.displayId, overlayActive, framesShown, passthrough: !!passthrough })
   if (process.env.LENS_SHOWTEST && o) console.log('[show] frame-ready display', o.displayId, Date.now() - tHotkey, 'ms')
   if (!o || !overlayActive || passthrough) return
   if (AUTOTEST) return o.win.webContents.send('overlay:shown')
@@ -444,6 +388,7 @@ ipcMain.on('overlay:frame-ready', (e) => {
 
 ipcMain.on('overlay:visible', (e) => {
   const o = overlayOf(e.sender)
+  diag('visible', { display: o?.displayId, focused: o?.win.isFocused(), bounds: o && JSON.stringify(o.win.getBounds()) })
   if (o && overlayActive && !passthrough) o.win.setOpacity(1)
   if (process.env.LENS_SHOWTEST && o) console.log('[show] visible display', o.displayId, Date.now() - tHotkey, 'ms', 'focused', o.win.isFocused(), 'bounds', JSON.stringify(o.win.getBounds()))
 })
@@ -472,6 +417,7 @@ function fadeOut(win: BrowserWindow, ms: number) {
 }
 
 function hideOverlays(immediate = false) {
+  diag('hideOverlays', { immediate, active: overlayActive, stack: new Error().stack?.split('\n')[2]?.trim() })
   captureGeneration++
   quickPending = false
   if (process.platform === 'win32') void winSpace.setCaptureSpace(false)
@@ -520,6 +466,7 @@ const plainSpaceHeld = () => spaceDown() === true &&
   (process.platform !== 'win32' || ![0x10, 0x11, 0x12, 0x5b, 0x5c].some((vk) => keyDown(vk)))
 const editingOverlays = new Set<number>()
 const overlayHeartbeats = new Map<number, number>()
+let captureLeaseEnabled: boolean | null = null
 
 ipcMain.on('overlay:space-editing', (e, editing: boolean) => {
   if (process.platform !== 'win32' || !overlayActive || !framesShown || !overlayOf(e.sender)) return
@@ -533,10 +480,16 @@ ipcMain.on('overlay:space-editing', (e, editing: boolean) => {
   // independent startup lease still expires if a monitor never responds.
   if (!editingOverlays.size && participants.some((o) => !overlayHeartbeats.has(o.win.webContents.id))) return
   const responsive = participants.every((o) => now - (overlayHeartbeats.get(o.win.webContents.id) ?? 0) < 1000)
-  void winSpace.setCaptureSpace(responsive && !editingOverlays.size)
+  const enabled = responsive && !editingOverlays.size
+  if (enabled !== captureLeaseEnabled) {
+    captureLeaseEnabled = enabled
+    diag('capture lease', { enabled, editing, editingCount: editingOverlays.size, responsive })
+  }
+  void winSpace.setCaptureSpace(enabled)
 })
 
 function requestScrollAtCursor() {
+  diag('requestScrollAtCursor', { overlayActive, framesShown, passthrough: !!passthrough, editing: editingOverlays.size })
   if (!overlayActive || !framesShown || passthrough || editingOverlays.size) return
   const cursor = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(cursor)
@@ -546,6 +499,7 @@ function requestScrollAtCursor() {
 
 ipcMain.on('overlay:passthrough', async (e, rect: Rect) => {
   const owner = overlayOf(e.sender)
+  diag('passthrough request', { owner: owner?.displayId, rect, space: plainSpaceHeld(), overlayActive, framesShown, passthrough: !!passthrough })
   if (!owner || !overlayActive || !framesShown || passthrough || hiding) return
   if (isMac && overlayActive && macSpaceDown() === null) {
     // 系统权限提示不能被 screen-saver 级别的截图窗口遮挡。
@@ -619,8 +573,10 @@ const translations = new Map<number, AbortController>()
 const ocrCache = new Map<string, OcrLine[]>()
 
 ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
+  diag('translate:start', { id: msg.requestId, rect: msg.rect, reuseOcr: msg.reuseOcr, manual: msg.manual })
   const sender = e.sender
   const send = (event: TranslateEvent) => {
+    diag('translate event', { id: msg.requestId, type: event.type })
     if (!ctl.signal.aborted && !sender.isDestroyed()) sender.send('translate:event', { requestId: msg.requestId, event })
   }
   translations.get(sender.id)?.abort()
@@ -640,7 +596,11 @@ ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
     let lines = msg.reuseOcr ? ocrCache.get(key) : undefined
     if (!lines) {
       try {
+        // 首次识别会加载 OCR 模型，可能阻塞主线程数秒；别让键盘看门狗把这当成卡死
+        if (process.platform === 'win32' && !AUTOTEST) winSpace.protect(15_000)
+        const ocrStart = Date.now()
         lines = await ocr.recognize({ data: crop, width: rect.w, height: rect.h })
+        diag('ocr done', { ms: Date.now() - ocrStart, lines: lines.length, provider: ocr.provider })
       } catch (err) {
         return send({ type: 'error', message: t('err.ocr', { msg: String(err) }), code: 'unknown' })
       }
@@ -663,11 +623,9 @@ ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
       return
     }
     if (ctl.signal.aborted) return
-    const signInProblem = await ensureFreshToken()
-    if (ctl.signal.aborted) return
-    if (signInProblem) return send({ type: 'error', message: signInProblem, code: 'auth' })
     const eng = engine ?? buildEngine(s)
     if (!eng) return send({ type: 'error', message: engineStatus().detail, code: 'config' })
+    diag('engine', { model: eng.name, status: engineStatus().detail, lines: lines.length })
     const { image, factor } = encodeForModel(crop, rect.w, rect.h)
     const promptLines = factor === 1 ? lines : lines.map((l) => ({ ...l, box: scaleRect(l.box, factor) }))
     send({ type: 'translating' })
@@ -677,11 +635,13 @@ ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
       ctl.signal
     )
     send({ type: 'done', ms: Date.now() - t0, firstTokenMs: res.firstTokenMs, engine: eng.name, usage: res.usage })
+    diag('translate done', { ms: Date.now() - t0, firstTokenMs: res.firstTokenMs, usage: res.usage })
     pipeline.emit('end', { ok: true, ms: Date.now() - t0, ocrMs: ocr.timing, firstTokenMs: res.firstTokenMs, usage: res.usage })
   } catch (err) {
     if (ctl.signal.aborted) return
     const te = err instanceof TranslateError ? err : new TranslateError(String(err), 'unknown')
-    const message = (await chatgptAuthProblem(te)) ?? errorText(te)
+    const message = errorText(te)
+    diag('translate error', { code: te.code, message })
     if (ctl.signal.aborted) return
     send({ type: 'error', message, code: te.code })
     pipeline.emit('end', { ok: false, error: message })
@@ -701,8 +661,6 @@ ipcMain.on('reply:start', async (e, msg: ReplyStartMsg) => {
   replies.get(sender.id)?.abort()
   const ctl = new AbortController()
   replies.set(sender.id, ctl)
-  const signInProblem = await ensureFreshToken()
-  if (signInProblem) return send({ type: 'error', message: signInProblem })
   const s = settings.get()
   const eng = engine ?? buildEngine(s)
   if (!eng) return send({ type: 'error', message: engineStatus().detail })
@@ -724,7 +682,7 @@ ipcMain.on('reply:start', async (e, msg: ReplyStartMsg) => {
     if (!ctl.signal.aborted) send({ type: 'done', ms: Date.now() - t0 })
   } catch (err) {
     if (ctl.signal.aborted) return
-    const message = (await chatgptAuthProblem(err)) ?? errorText(err)
+    const message = errorText(err)
     if (ctl.signal.aborted) return
     send({ type: 'error', message })
   } finally {
@@ -1044,21 +1002,6 @@ nativeTheme.on('updated', () => {
 })
 
 ipcMain.handle('settings:get', () => settings.public())
-let openingOfflineSurvey: Promise<{ ok: boolean }> | null = null
-ipcMain.handle('survey:offline', (e) => {
-  if (!settingsWin || e.sender !== settingsWin.webContents) return { ok: false }
-  if (openingOfflineSurvey) return openingOfflineSurvey
-  openingOfflineSurvey = (async () => {
-    try {
-      await submitOfflineVote()
-      return { ok: true }
-    } catch (error) {
-      logError('offline survey', error)
-      return { ok: false }
-    } finally { openingOfflineSurvey = null }
-  })()
-  return openingOfflineSurvey
-})
 // 界面语言：各窗口加载时同步取一次（首帧就是对的语言），之后有变化再推送
 ipcMain.on('ui:lang', (e) => (e.returnValue = uiLang()))
 let sentLang = ''
@@ -1078,61 +1021,9 @@ ipcMain.handle('settings:set', (_e, patch: SettingsPatch) => {
 ipcMain.handle('engine:status', () => engineStatus())
 ipcMain.handle('mac:settings-status', () => macSettingsStatus())
 ipcMain.handle('mac:open-settings', (_event, pane: string) => openMacSettings(pane))
-/** 本机已有的 OpenAI 兼容凭据（Codex 配置、CC Switch），可一键导入 */
-ipcMain.handle('openai:sources', (): OpenAISource[] =>
-  findOpenAISources().map((f) => ({ id: f.id, label: f.label, baseURL: f.baseURL, hasKey: !!f.apiKey, model: f.model }))
-)
-ipcMain.handle('openai:import', (_e, id: string) => {
-  const src = findOpenAISources().find((f) => f.id === id)
-  if (!src) return settings.public()
-  settings.update({ provider: 'custom', providers: { custom: { baseUrl: src.baseURL, key: src.apiKey, model: '' } } })
-  return settings.public()
-})
-/** 打开服务商的网页（获取 Key、文档）；只允许 https */
+/** 打开 DeepSeek 的网页（获取 Key、文档）；只允许 https */
 ipcMain.on('shell:open', (_e, url: string) => {
   if (/^https:[/][/]/.test(url)) void shell.openExternal(url)
-})
-/** 拉取服务端模型列表，按一次翻译的估算费用从低到高排序（价格来自 models.dev） */
-ipcMain.handle('models:list', async (_e, id?: ProviderId): Promise<{ ok: boolean; models: ModelInfo[]; message?: string }> => {
-  const signInProblem = await ensureFreshToken(id)
-  if (signInProblem) return { ok: false, models: [], message: signInProblem }
-  const s = settings.get()
-  const r = resolveProvider(s, id ?? s.provider)
-  if (!r) return { ok: false, models: [], message: id === 'chatgpt' ? t('models.signInFirst') : t('models.keyFirst') }
-  const bundled = join(resources, 'model-prices.json')
-  try {
-    // 价格库在后台刷新，不拖慢列表；这次先用缓存或安装包内置的价格
-    void refreshPrices(bundled)
-    if (r.info.id === 'chatgpt') {
-      // 会员额度内使用，不按 token 计费：不显示价格
-      const ids = await listPlanModels(r.apiKey)
-      return { ok: true, models: ids.map((m) => ({ id: m, input: null, output: null, vision: null, perCall: null })) }
-    }
-    const ids = await new OpenAIEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, 'x').listModels()
-    return { ok: true, models: sortByPrice(ids, bundled) }
-  } catch (e) {
-    return { ok: false, models: [], message: errorText(e) }
-  }
-})
-/** 识别 Key 属于哪家服务 */
-ipcMain.handle('key:detect', (_e, key: string) => detectProvider(key))
-
-/** 用 ChatGPT 账号登录：打开浏览器，等待回调 */
-ipcMain.handle('chatgpt:signin', async (): Promise<{ ok: boolean; message?: string }> => {
-  try {
-    const s = settings.get()
-    const sess = await signInChatGPT(s.installId, chatgptSession(s))
-    if (settingsWin && !settingsWin.isDestroyed()) settingsWin.focus()
-    settings.update({ provider: 'chatgpt', providers: { chatgpt: { key: JSON.stringify(sess), label: sess.email ?? '', baseUrl: '', expired: false } } })
-    return { ok: true }
-  } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : String(e) }
-  }
-})
-ipcMain.on('chatgpt:cancel', () => cancelSignIn())
-ipcMain.handle('chatgpt:signout', () => {
-  settings.update({ providers: { chatgpt: { key: '', label: '', expired: false } } })
-  return settings.public()
 })
 
 ipcMain.handle('app:info', () => ({ version: app.getVersion() }))
@@ -1153,8 +1044,6 @@ ipcMain.on('settings:open', () => {
 })
 
 ipcMain.handle('engine:test', async () => {
-  const signInProblem = await ensureFreshToken()
-  if (signInProblem) return { ok: false, message: signInProblem }
   const s = settings.get()
   const eng = engine ?? buildEngine(s)
   if (!eng) return { ok: false, message: engineStatus().detail }
@@ -1179,7 +1068,7 @@ ipcMain.handle('engine:test', async () => {
     )
     return { ok: true, message: t('test.result', { got, s: ((Date.now() - t0) / 1000).toFixed(1) }) }
   } catch (err) {
-    return { ok: false, message: (await chatgptAuthProblem(err)) ?? errorText(err) }
+    return { ok: false, message: errorText(err) }
   }
 })
 
@@ -1307,10 +1196,10 @@ function updateMacMenu() {
 /**
  * 旧名称「Lens 截图翻译」的配置搬到新目录。
  * Key 不搬：safeStorage 的密钥存在各自数据目录的 Local State 里，换了目录就解不开，需要重新填写。
- * 格式转换（engine / openaiKey → providers）由 settings.load() 统一处理。
+ * 旧版字段由 settings.load() 统一转换，只保留 DeepSeek。
  */
 function migrateLegacy() {
-  if (AUTOTEST || process.env.LENS_ENGINE_TEST || process.env.LENS_SIGNIN_TEST) return
+  if (AUTOTEST || process.env.LENS_ENGINE_TEST) return
   const dir = app.getPath('userData')
   const legacy = join(app.getPath('appData'), 'Lens 截图翻译', 'settings.json')
   if (existsSync(join(dir, 'settings.json')) || !existsSync(legacy)) return
@@ -1328,8 +1217,7 @@ function migrateLegacy() {
 
 export const startup = app.whenReady().then(async () => {
   migrateLegacy()
-  let s = settings.load()
-  if (!s.installId) s = settings.update({ installId: `urn:uuid:${randomUUID()}` })
+  const s = settings.load()
   sentLang = uiLang()
   updateMacMenu()
   if (isMac) app.dock?.setIcon(nativeImage.createFromPath(appIcon))
@@ -1376,9 +1264,14 @@ export const startup = app.whenReady().then(async () => {
   })
 
   await winSpace.start((recording) => {
+    diag('winSpace press', { recording })
     if (recording) settingsWin?.webContents.send('hotkey:recorded', 'Super+Space')
     else onHotkey()
-  }, requestScrollAtCursor, () => { if (!quitting) void hideOverlays(true) })
+  }, requestScrollAtCursor, () => {
+    // 看门狗只负责把键盘输入还给系统，不能关掉截图界面：
+    // 首次加载 OCR 模型、整屏截图都可能让主线程短暂停顿，关掉会让用户以为框选没反应。
+    diag('winSpace expired')
+  })
   const ok = await registerHotkey(s.hotkey)
   if (process.platform === 'win32') {
     const releaseInput = () => { void hideOverlays(true); void winSpace.setMode(0) }
@@ -1388,7 +1281,7 @@ export const startup = app.whenReady().then(async () => {
     powerMonitor.on('resume', () => { void registerHotkey(settings.get().hotkey) })
   }
   settings.onChange((next, prev) => {
-    if (next.provider !== prev.provider || JSON.stringify(next.providers[next.provider]) !== JSON.stringify(prev.providers[prev.provider])) buildEngine(next)
+    if (JSON.stringify(next.providers.deepseek) !== JSON.stringify(prev.providers.deepseek)) buildEngine(next)
     if (next.launchAtLogin !== prev.launchAtLogin) app.setLoginItemSettings({ openAtLogin: next.launchAtLogin })
     if (next.autoUpdate !== prev.autoUpdate) setAutoUpdate(next.autoUpdate)
     if (next.uiLang !== prev.uiLang) broadcastUiLang()
@@ -1417,15 +1310,7 @@ export const startup = app.whenReady().then(async () => {
     return
   }
 
-  // LENS_DETECT_TEST=<Key1,Key2…>：只测识别 Key 属于哪家（不打印 Key 本身）
-  if (process.env.LENS_DETECT_TEST) {
-    for (const k of process.env.LENS_DETECT_TEST.split(',')) console.log('[detect]', k.slice(0, 7) + '…', JSON.stringify(await detectProvider(k)))
-    return app.quit()
-  }
-
-  // LENS_SIGNIN_TEST=1：ChatGPT 登录刷新与设置保存（令牌接口用假响应，不需要真账号）
-  if (process.env.LENS_SIGNIN_TEST) return void runSignInTest({ ensure: ensureFreshToken, authProblem: chatgptAuthProblem, status: engineStatus })
-
+  // LENS_ENGINE_TEST：用真实 DeepSeek Key 跑一遍 OCR + 模型
   if (process.env.LENS_ENGINE_TEST) {
     const img = nativeImage.createFromPath(join(process.env.LENS_AUTOTEST_ROOT || app.getAppPath(), '.scratch', process.env.LENS_ENGINE_IMAGE ?? 'test1.png'))
     const size = img.getSize()
@@ -1439,22 +1324,9 @@ export const startup = app.whenReady().then(async () => {
     }
     const lines = await ocr.recognize({ data: rgba, width: size.width, height: size.height })
     const enc = encodeForModel(rgba, size.width, size.height)
-    // LENS_PROVIDER=<服务商> + LENS_PROVIDER_KEY：直接测某家服务；
-    // LENS_OPENAI_SOURCE=ccs:<名称> / codex：用本机 Codex / CC Switch 的凭据，按自定义服务测（自测数据目录里没有 Key）；
-    // LENS_OPENAI_FAKE=1：本地假服务（只有 Chat Completions），检查接口自动回退
-    const fake = process.env.LENS_OPENAI_FAKE ? await fakeModelServer() : null
-    const all = process.env.LENS_OPENAI_SOURCE ? findOpenAISources() : []
-    const src = all.find((f) => f.id === process.env.LENS_OPENAI_SOURCE)
-    if (process.env.LENS_OPENAI_SOURCE && !src) console.log('[engine] sources:', all.map((f) => f.id).join(', '))
-    const id = (process.env.LENS_PROVIDER as ProviderId | undefined) ?? (fake || src ? 'custom' : s.provider)
-    const conf = fake
-      ? { baseUrl: fake.url, key: 'sk-test-0000' }
-      : src
-        ? { baseUrl: src.baseURL, key: src.apiKey }
-        : { key: process.env.LENS_PROVIDER_KEY ?? '', baseUrl: '' }
-    const model = process.env.LENS_OPENAI_MODEL ?? s.providers[id]?.model ?? ''
-    // 只在内存里拼一份配置（Key 明文，不写盘）：resolveProvider 解密时明文原样返回
-    const eng = engineFor({ ...s, provider: id, providers: { ...s.providers, [id]: { ...conf, model } } })
+    const key = process.env.LENS_PROVIDER_KEY ?? ''
+    const model = process.env.LENS_OPENAI_MODEL ?? s.providers.deepseek?.model ?? 'deepseek-flash'
+    const eng = engineFor({ ...s, providers: { deepseek: { key, model } } })
     if (!eng) {
       console.log('[engine] no api credentials')
       return app.quit()

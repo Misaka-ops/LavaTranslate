@@ -1,34 +1,46 @@
 import { app } from 'electron'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DEFAULT_SETTINGS, providerForUrl, type ProviderConfig, type ProviderId, type Settings, type SettingsPatch } from '../shared/types'
+import { DEFAULT_SETTINGS, type ProviderConfig, type ProviderId, type Settings, type SettingsPatch } from '../shared/types'
 import { encryptSecret, isMasked, maskSecret } from './secrets'
 
 type Listener = (next: Settings, prev: Settings) => void
 
-const EMPTY: ProviderConfig = { key: '', baseUrl: '', model: '' }
+const EMPTY: ProviderConfig = { key: '', baseUrl: '', model: 'deepseek-flash' }
 const defaults: Settings = { ...DEFAULT_SETTINGS, hotkey: process.platform === 'darwin' ? 'Alt+Space' : DEFAULT_SETTINGS.hotkey }
 
 /**
- * 旧版设置（engine + apiKey / openaiKey…）转成按服务商保存的结构。
- * 已加密的 Key 原样搬过去：同一个数据目录，照样能解密
+ * 旧版设置（多服务商、ChatGPT 登录、离线投票）转成只管 DeepSeek 的结构。
+ * 已加密的 DeepSeek Key 原样留下：同一个数据目录，照样能解密；其他服务商的配置直接丢弃。
  */
 function migrate(raw: any): { data: Settings; changed: boolean } {
-  if (raw.providers && raw.provider) return { data: { ...defaults, ...raw }, changed: false }
-  const providers: Settings['providers'] = { ...(raw.providers ?? {}) }
-  let provider: ProviderId = DEFAULT_SETTINGS.provider
-  if (raw.openaiKey || raw.openaiBaseUrl) {
-    const id = raw.openaiBaseUrl ? providerForUrl(raw.openaiBaseUrl) : 'openai'
-    providers[id] = { key: raw.openaiKey ?? '', baseUrl: id === 'custom' ? (raw.openaiBaseUrl ?? '') : '', model: raw.openaiModel ?? '' }
-    if (raw.engine === 'openai') provider = id
+  const ds = raw?.providers?.deepseek
+  const data: any = {
+    ...defaults,
+    ...raw,
+    provider: 'deepseek',
+    providers: {
+      deepseek: {
+        key: typeof ds?.key === 'string' ? ds.key : '',
+        baseUrl: '',
+        model: typeof ds?.model === 'string' && ds.model ? ds.model : 'deepseek-flash'
+      }
+    }
   }
-  if (raw.apiKey) {
-    providers.claude = { key: raw.apiKey, baseUrl: raw.apiBaseUrl ?? '', model: /^claude/.test(raw.model ?? '') ? raw.model : '' }
-    if (raw.engine === 'api') provider = 'claude'
-  }
-  const data: any = { ...defaults, ...raw, provider, providers }
-  for (const k of ['engine', 'model', 'apiKey', 'apiBaseUrl', 'openaiKey', 'openaiBaseUrl', 'openaiModel', 'openaiSource']) delete data[k]
-  return { data, changed: true }
+  for (const k of [
+    'engine',
+    'model',
+    'apiKey',
+    'apiBaseUrl',
+    'openaiKey',
+    'openaiBaseUrl',
+    'openaiModel',
+    'openaiSource',
+    'offlineSurveyDismissed',
+    'offlineSurveyId'
+  ])
+    delete data[k]
+  return { data, changed: JSON.stringify(raw) !== JSON.stringify(data) }
 }
 
 class SettingsStore {

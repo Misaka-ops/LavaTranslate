@@ -2,7 +2,7 @@ import { translator, type Messages, type T } from './index'
 
 // 只由 Mac 桌面入口使用，其他平台继续使用原词条。
 const zh: Partial<Messages> = {
-  'key.desc': 'API Key 以明文保存在此 Mac 的应用配置中，仅当前 macOS 用户可读，无需钥匙串验证。请勿分享配置文件。',
+  'svc.keyDesc': 'API Key 以明文保存在此 Mac 的应用配置中，仅当前 macOS 用户可读，无需钥匙串验证。请勿分享配置文件。',
   'gen.hotkeyDesc': '按 {key} 开始框选，连续按两次进入输入翻译。',
   'gen.launch': '登录时打开',
   'gen.launchDesc': '登录 Mac 后在菜单栏运行；可在「系统设置 → 通用 → 登录项」中管理。',
@@ -14,7 +14,7 @@ const zh: Partial<Messages> = {
 }
 const zhHant: Partial<Messages> = {
   ...zh,
-  'key.desc': 'API Key 以明文儲存在此 Mac 的 App 設定中，僅目前 macOS 使用者可讀，無需鑰匙圈驗證。請勿分享設定檔。',
+  'svc.keyDesc': 'API Key 以明文儲存在此 Mac 的 App 設定中，僅目前 macOS 使用者可讀，無需鑰匙圈驗證。請勿分享設定檔。',
   'gen.hotkeyDesc': '按 {key} 開始框選，連續按兩次進入輸入翻譯。',
   'gen.launch': '登入時打開',
   'gen.launchDesc': '登入 Mac 後在選單列執行；可在「系統設定 → 一般 → 登入項目與延伸功能」中管理。',
@@ -25,7 +25,7 @@ const zhHant: Partial<Messages> = {
   'about.privacyDesc': '文字辨識在 Mac 本機完成。所選區域的影像、辨識文字及你輸入的回覆會傳送至設定的翻譯服務；API Key 以明文儲存在此 Mac 的 App 設定中，僅目前使用者可讀，App 不儲存翻譯記錄。'
 }
 const en: Partial<Messages> = {
-  'key.desc': 'Your API key is stored in plaintext in this Mac’s app settings, readable only by your macOS user. No Keychain verification is required. Do not share the settings file.',
+  'svc.keyDesc': 'Your API key is stored in plaintext in this Mac’s app settings, readable only by your macOS user. No Keychain verification is required. Do not share the settings file.',
   'gen.hotkeyDesc': 'Press {key} to select an area, or twice to translate typed text.',
   'gen.launch': 'Open at login',
   'gen.launchDesc': 'Run in the menu bar when you log in. Manage in System Settings → General → Login Items.',
@@ -41,7 +41,7 @@ export function macTranslator(lang: string): T {
   const cached = cache.get(lang)
   if (cached) return cached
   const base = translator(lang)
-  const overrides = lang === 'zh-Hans' ? zh : lang === 'zh-Hant' ? zhHant : lang === 'en' ? en : { 'key.desc': en['key.desc'], 'about.privacyDesc': en['about.privacyDesc'] }
+  const overrides = lang === 'zh-Hans' ? zh : lang === 'zh-Hant' ? zhHant : lang === 'en' ? en : { 'svc.keyDesc': en['svc.keyDesc'], 'about.privacyDesc': en['about.privacyDesc'] }
   const t: T = (key, vars) => {
     let text = (overrides[key] ?? (key === 'sc.tray' ? '⌘ ,' : base(key))).replace(/\bAlt\b/g, 'Option').replace(/\bCtrl\b/g, 'Command').replace(/Windows/g, 'macOS')
     if (key === 'hotkey.needMod') text = text.replace(/ \/ Win(?=[)）])/g, '')

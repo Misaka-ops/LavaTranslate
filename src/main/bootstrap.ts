@@ -3,7 +3,7 @@ import { app } from 'electron'
 import { join } from 'node:path'
 import { logError, startupFailed } from './diagnostics'
 
-if (process.env.LENS_AUTOTEST || process.env.LENS_REVIEW || process.env.LENS_ENGINE_TEST || process.env.LENS_DETECT_TEST || process.env.LENS_PASSTEST || process.env.LENS_SIGNIN_TEST) {
+if (process.env.LENS_AUTOTEST || process.env.LENS_REVIEW || process.env.LENS_ENGINE_TEST || process.env.LENS_PASSTEST) {
   app.setPath('userData', join(app.getPath('temp'), 'lens-autotest'))
 }
 

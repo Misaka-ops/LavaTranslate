@@ -107,6 +107,17 @@ export class WinSpaceHotkey {
     return this.apply()
   }
 
+  /**
+   * 主进程即将做可能阻塞的事（首次加载 OCR 模型、整屏截图）时，同时延长主进程和截图界面的期限，
+   * 避免看门狗把正常的几百毫秒到几秒的停顿误判成卡死而关掉截图界面。
+   */
+  protect(ms = 15_000) {
+    if (!this.ready) return
+    Atomics.store(this.state, S.mainUntil, deadline(ms))
+    Atomics.store(this.state, S.captureUntil, deadline(ms))
+    this.wake()
+  }
+
   get scrollHeld(): boolean { return this.ready && Atomics.load(this.state, S.held) === 1 }
 
   private clear() {

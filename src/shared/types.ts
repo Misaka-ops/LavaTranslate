@@ -73,24 +73,21 @@ export const LANGUAGES: Language[] = [
   { code: 'ar', name: '阿拉伯语', native: 'العربية' }
 ]
 
-/** 某个翻译服务的配置：Key 落盘加密，界面上为打码形式（•••• 末四位）；接口地址留空表示用默认 */
+/** DeepSeek 配置：Key 落盘加密，界面上为打码形式（•••• 末四位） */
 export interface ProviderConfig {
   key: string
-  baseUrl: string
+  /** 兼容旧设置与安卓端；地址固定为 DeepSeek 官方接口 */
+  baseUrl?: string
   model: string
-  /** 界面显示用（ChatGPT 登录的账号邮箱） */
-  label?: string
-  /** ChatGPT 登录已失效（刷新令牌过期或被吊销）：保留登录信息以便沿用 client_id，但不再使用，等用户重新登录 */
-  expired?: boolean
 }
 
 export interface Settings {
   hotkey: string
   targetLang: string
   autoTranslate: boolean
-  /** 当前使用的翻译服务 */
+  /** 当前使用的翻译服务（这一版固定为 deepseek） */
   provider: ProviderId
-  /** 各服务分别保存 Key、接口地址、模型，切换时互不影响 */
+  /** DeepSeek 的 Key 与模型 */
   providers: Partial<Record<ProviderId, ProviderConfig>>
   /** 自动检查并下载更新（GitHub Releases） */
   autoUpdate: boolean
@@ -98,17 +95,11 @@ export interface Settings {
   replyAssist: boolean
   replyTone: 'auto' | 'formal' | 'casual'
   launchAtLogin: boolean
-  /** Offline-pack vote was acknowledged by the server. */
-  offlineSurveyDismissed: boolean
-  /** Separate random survey ID, unrelated to translation accounts. */
-  offlineSurveyId: string
   /** 显示模式：覆盖原文 / 原文下方对照 */
   displayMode: 'overlay' | 'side'
   /** 翻译风格补充说明 */
   styleHint: string
   firstRunDone: boolean
-  /** 本机安装的标识（ChatGPT 登录要求每台设备一个固定的 ext_agent_host_id） */
-  installId: string
   /** 界面语言（桌面版）：'auto' 跟随系统，或 i18n 里的某种语言 */
   uiLang: string
 }
@@ -122,28 +113,17 @@ export const DEFAULT_SETTINGS: Settings = {
   hotkey: 'Super+Space',
   targetLang: 'zh-Hans',
   autoTranslate: true,
-  provider: 'gemini',
-  providers: {},
-  autoUpdate: true,
+  provider: 'deepseek',
+  providers: { deepseek: { key: '', baseUrl: '', model: 'deepseek-flash' } },
+  // 这个精简分支默认关闭自动更新，避免被上游版本覆盖；需要时可在「关于」里打开
+  autoUpdate: false,
   replyAssist: true,
   replyTone: 'auto',
   launchAtLogin: false,
-  offlineSurveyDismissed: false,
-  offlineSurveyId: '',
   displayMode: 'overlay',
   styleHint: '',
   firstRunDone: false,
-  installId: '',
   uiLang: 'auto'
-}
-
-/** 在本机找到的 OpenAI 兼容凭据（Codex 配置 / CC Switch） */
-export interface OpenAISource {
-  id: string
-  label: string
-  baseURL: string
-  hasKey: boolean
-  model?: string
 }
 
 /** 回复助手：渲染进程 → 主进程 */
@@ -165,15 +145,6 @@ export interface ReplyStartMsg {
 }
 
 export type ReplyEvent = { type: 'delta'; text: string } | { type: 'done'; ms: number } | { type: 'error'; message: string }
-
-/** 模型列表里的一项（价格来自 models.dev） */
-export interface ModelInfo {
-  id: string
-  input: number | null
-  output: number | null
-  vision: boolean | null
-  perCall: number | null
-}
 
 export type UpdateState = { manualInstall?: boolean } & (
   | { state: 'idle' | 'checking' | 'latest' | 'disabled'; version: string; message?: string }

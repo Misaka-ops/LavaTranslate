@@ -2,6 +2,8 @@
 
 > 面向用户的说明见仓库首页的 [README](../README.md) / [中文 README](../README.zh-CN.md)。
 
+> **本分支说明**：这是一个只保留 DeepSeek 的 Windows 精简分支。服务商目录只剩 DeepSeek，桌面设置合并为「翻译 / 通用 / 关于」3 页；ChatGPT 登录、Key 自动识别、本机凭据导入、模型价格列表和离线翻译意向投票已删除。下文保留的上游章节（多服务商、ChatGPT 登录、安卓细节、离线投票）仅作历史参考，相关代码已不在本分支中。
+
 按下快捷键，框选屏幕上任意区域：本地 OCR 找出每一行文字的位置，大模型看着截图纠错、合并段落并翻译，译文按**原来的位置、字号、颜色、粗细、对齐方式**直接覆盖在原文上。
 
 看懂对方的消息后，可以直接用自己的语言写回复：**回复助手**会参照屏幕上的对话语气实时译成对方的语言，并附上回译让你确认意思，`Enter` 复制即可去发送。
@@ -54,20 +56,13 @@ Windows 的 `Win + Space` 由独立线程上的低级键盘钩子处理（`win-s
 
 ## 翻译服务
 
-服务商目录在 `src/shared/providers.ts`：每家的接口地址、获取 Key 的网页与步骤、推荐模型、优先用哪种接口（Responses / Chat Completions），
-以及在 Chat Completions 里关掉「思考」的参数（DeepSeek / 智谱 / 豆包：`thinking: {type: "disabled"}`，通义：`enable_thinking: false`；
-其余用 `reasoning_effort` 从 none 逐档尝试）。设置按服务商分别保存 `providers[id] = { key, baseUrl, model }`，Key 用 safeStorage 加密
-（密文绑定数据目录的 Local State，不能跨目录复制）；旧版的 `engine / openaiKey / apiKey` 在 `settings.load()` 里自动转换。
+服务商目录在 `src/shared/providers.ts`，现在只有 DeepSeek：官方接口 `https://api.deepseek.com`、获取 Key 的网页、三档模型
+（`deepseek-flash` / `deepseek-chat` / `deepseek-reasoner`），以及在 Chat Completions 里关掉「思考」的 `thinking: {type: "disabled"}`。
+设置只保存 `providers.deepseek = { key, model }`，Key 用 safeStorage 加密（密文绑定数据目录的 Local State，不能跨目录复制）；
+旧版多服务商、ChatGPT 登录、离线投票字段在 `settings.load()` 的迁移里丢弃，只保留原来的 DeepSeek Key。
 
-- 全部走 `openai` SDK（Claude 用 Anthropic 的 OpenAI 兼容接口 `https://api.anthropic.com/v1`，模型列表用原生 `/v1/models`）：先用 Responses API，服务商没有该接口（404）时改用 Chat Completions 并记住；
-  模型不能看图时只发 OCR 文本；Key 无效（401，Gemini 是 400）统一提示「API Key 无效」。
-- Gemini 的模型列表用原生接口 `/v1beta/models` 获取（OpenAI 兼容接口未必提供）。
-- 价格来自 [models.dev](https://models.dev)，3 天刷新一次，离线时用安装包内置的快照。
-- 不提供「Claude 账号」登录：Anthropic 不允许第三方软件使用 claude.ai 登录或订阅额度（见 Agent SDK 文档）。
-- **识别 Key**（`credentials.ts` 的 `detectProvider`）：先按格式（`providers.ts` 里各家的 `keyPattern`），sk- 开头格式相同的几家并发请求 `/models`，通过的就是；都不行界面上让用户选。
-- **ChatGPT 登录**（`src/main/chatgpt.ts`）：OpenAI 给开源软件的「使用 ChatGPT 会员额度」——动态注册（首次 `client_id=dynamic_agent_client`，回调带回 `oaiapp_…`）、PKCE、本机回调 `http://127.0.0.1:<端口>/callback`、每台设备固定的 `ext_agent_host_id`（`settings.installId`）；
-  ID Token 用 `https://auth.openai.com/.well-known/jwks.json` 校验签名、iss、aud、exp、nonce，并要求授予 `chatgpt.tokens.use.direct`；令牌加密存在 `providers.chatgpt.key`，调用前快过期就刷新；
-  请求必须 `store:false`、`stream:true`，不能带 `max_output_tokens` 等参数（见 preview limitations）。
+- 全部走 `openai` SDK 的 Chat Completions；模型不能看图时只发 OCR 文本；Key 无效（401）统一提示「API Key 无效」，余额不足（402）提示充值。
+- 模型固定三档，设置页不再请求模型列表，也不显示价格。
 - **思考对排版的影响**：同一批真实网页开 / 关思考对比，分块、语言、是否对话一致；关思考后模型常把照抄的原文漏标 keep，现由 `BlockParser` 在译文与原文相同时自动保留原图。
 
 ## Windows 运行库与启动诊断
@@ -140,7 +135,7 @@ npm run dist     # 打包 NSIS 安装程序到 dist/
 ```
 
 自测（离屏渲染，不打扰屏幕，使用独立的数据目录）：`LENS_AUTOTEST=1 LENS_MOCK=1 npx electron .`，截图输出到 `.scratch/shots/`；
-包括聊天截图 + 回复框、按住空格回来后保留 / 重译选区、模型价格列表（本地假服务）、设置各页。
+包括聊天截图 + 回复框、按住空格回来后保留 / 重译选区和设置的三页。
 `LENS_AUTOTEST=keys LENS_MOCK=1 npx electron .` 只测框选后按住 Alt（看原文、暂停后补上译文）和双击 / Alt+双击复制图片，
 剪贴板里的图存成 `.scratch/shots/keys-*.png`。离屏渲染按 1 倍缩放截图，所以「复制译文图片」比原图小，真窗口是物理像素。
 
@@ -148,14 +143,9 @@ npm run dist     # 打包 NSIS 安装程序到 dist/
 逐步打印遮罩的透明度、是否穿透、焦点是否抢回、空格有没有临时注册 / 释放。
 
 真实引擎（独立数据目录，Key 不写盘）：
-- 某家服务：`LENS_ENGINE_TEST=1 LENS_PROVIDER=<服务商> LENS_PROVIDER_KEY=<Key> LENS_OPENAI_MODEL=<模型> npx electron .`
-- 本机 Codex / CC Switch 的中转：`LENS_ENGINE_TEST=1 LENS_OPENAI_SOURCE=ccs:<供应商名> LENS_OPENAI_MODEL=<模型> npx electron .`
-- 可加 `LENS_ENGINE_IMAGE=chat.png`（换测试图）、`LENS_REPLY_TEST="要回复的话"`（同时测回复助手，`LENS_REPLY_TO=<语言>` 改目标、`LENS_REPLY_BOTH=1` 测输入翻译的自动互译）、
-  `LENS_OPENAI_EFFORT=default`（不关思考，对照用）、`LENS_OPENAI_FAKE=1`（本地假服务，检查接口回退）。
+- `LENS_ENGINE_TEST=1 LENS_PROVIDER_KEY=<DeepSeek Key> LENS_OPENAI_MODEL=deepseek-flash npx electron .`
+- 可加 `LENS_ENGINE_IMAGE=chat.png`（换测试图）、`LENS_REPLY_TEST="要回复的话"`（同时测回复助手，`LENS_REPLY_TO=<语言>` 改目标、`LENS_REPLY_BOTH=1` 测输入翻译的自动互译）。
 - 旧格式设置迁移：`LENS_AUTOTEST=1 LENS_MOCK=1 LENS_AUTOTEST_SEED=<旧 settings.json> npx electron .`
-- 识别 Key：`LENS_DETECT_TEST=<Key1,Key2…> npx electron .`（只打印识别结果，不打印 Key）
-- ChatGPT 登录刷新与设置保存：`LENS_SIGNIN_TEST=1 npx electron .`（令牌接口在应用内换成假响应，不需要真账号；
-  检查并发刷新只发一次、临时故障与登录失效的区分、刷新期间重新登录、设置文件原子写入与损坏另存）
 
 ## macOS 版（Apple Silicon）
 
@@ -276,15 +266,4 @@ cd android
 ## 说明
 
 - 软件不内置任何 Key，用户填自己的。
-- 只有框选的区域（以及你写的回复）会发送给你配置的服务；OCR 在本地完成，不保存任何会话记录。
-
-## 离线翻译意向调查
-
-桌面设置首页和通用设置的快捷键上方显示 `OfflineSurvey`，12 种界面语言均有文案。`survey:offline` 只接受设置窗口调用，向固定统计接口提交匿名意向；成功后保存 `offlineSurveyDismissed: true`，后续启动不再显示，断网或失败保留重试。
-
-- 统计页：https://lavatranslate-offline-votes.cracker111.chatgpt.site
-- 只读计数：`GET /api/votes`，达到 11 票为开发门槛，不会自动下载或启用模型。
-- 首次提交前保存独立随机 UUID `offlineSurveyId`，与 ChatGPT 登录的安装标识分开。服务端只保存其 SHA-256 摘要，数据库唯一键去重；提交请求不包含账号、原文、译文或设备信息。清除应用数据/重新安装后可能产生新标识，不能等同于严格的独立人数。
-- `POST /api/votes` 限制 JSON 512 字节、校验 UUID，并校验绑定安装标识与小时的轻量工作量证明。防止无意重复和简单批量请求，不承诺杜绝刻意刷票。客户端计算分片让出事件循环，网络请求 10 秒超时。
-- 后端实现和迁移镜像在 `services/offline-survey/`，托管于 Sites + D1。站点完整构建源另存于 Sites 的受管源码仓库；部署说明见该目录 README。原 GitHub Issue #3 不再作为计票入口。
-- 回归测试：`node --test scripts/offline-survey.test.mjs`（去重、匿名总数、无效请求、失败重试和持久隐藏），设置组件交互由 `npm run check:layout` 覆盖。
+- 只有框选的区域（以及你写的回复）会发送给你配置的 DeepSeek；OCR 在本地完成，不保存任何会话记录。

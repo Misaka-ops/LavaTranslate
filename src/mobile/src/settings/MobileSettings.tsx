@@ -23,10 +23,9 @@ import {
   Zap
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { detectProvider } from '@core/detect'
-import { sortByPriceIn, type ModelPrice, type PriceTable } from '@core/prices'
+import { LANGUAGES, PROVIDERS, providerByKeyFormat, providerInfo, type ProviderConfig, type ProviderId } from '@shared/types'
 import { OpenAIEngine } from '@core/translator'
-import { AMBIGUOUS_KEY_PROVIDERS, LANGUAGES, PROVIDERS, providerByKeyFormat, providerInfo, type ProviderConfig, type ProviderId } from '@shared/types'
+import { sortByPriceIn, type ModelPrice, type PriceTable } from '@core/prices'
 import prices from '../../../../resources/model-prices.json'
 import testPng from '../../../../resources/test.png?inline'
 import appIcon from '../../../../resources/icon.png?url'
@@ -53,7 +52,7 @@ interface Status {
 type Patch = Partial<Omit<S, 'providers'>> & { providers?: Partial<Record<ProviderId, Partial<ProviderConfig>>> }
 
 /** 手机上不提供 ChatGPT 账号登录（桌面版也还在验证中） */
-const MOBILE_PROVIDERS = PROVIDERS.filter((p) => p.id !== 'chatgpt')
+const MOBILE_PROVIDERS = PROVIDERS
 /** 设置页里拉模型列表、验证 Key：网络不通时尽快给出结果，不重试 */
 const LOOKUP = { timeout: 12_000, maxRetries: 0 }
 const NON_CHAT = /(embed|tts|whisper|dall-?e|imagen|image-gen|-image|audio|realtime|moderation|transcri|rerank|sora|veo|speech|search-preview|aqa|live)/i
@@ -375,19 +374,16 @@ function ServiceCard({ s, update, openModels }: { s: S; update: (p: Patch) => Pr
   )
 }
 
-type Verify = { state: 'run'; text: string } | { state: 'ok'; text: string } | { state: 'err'; text: string; switchTo?: ProviderId }
+type Verify = { state: 'run'; text: string } | { state: 'ok'; text: string } | { state: 'err'; text: string }
 
 function ProviderSetup({ s, update, openModels }: { s: S; update: (p: Patch) => Promise<void>; openModels: () => void }) {
   const info = providerInfo(s.provider)
   const conf = s.providers[info.id]
-  const custom = info.id === 'custom'
   const [key, setKey] = useState('')
   const [show, setShow] = useState(false)
-  const [url, setUrl] = useState(custom ? (conf?.baseUrl ?? '') : '')
   const [busy, setBusy] = useState(false)
   const [verify, setVerify] = useState<Verify | null>(null)
   const [test, setTest] = useState<{ state: 'run' | 'ok' | 'err'; text: string } | null>(null)
-  const urlChanged = custom && url.trim().toLowerCase() !== (conf?.baseUrl ?? '').toLowerCase()
 
   /** 用已保存的 Key 拉模型列表：验证 Key，顺便在还没选模型时选上推荐的 */
   const check = async (id: ProviderId, note = '') => {
@@ -406,32 +402,21 @@ function ProviderSetup({ s, update, openModels }: { s: S; update: (p: Patch) => 
       }
       setVerify({ state: 'ok', text: `${note}Key 可用${picked ? `，已选推荐模型 ${picked}` : ''}` })
     } catch (e) {
-      const err: Verify = { state: 'err', text: note + explain(e, pi.tags.includes('需要代理')) }
-      setVerify(err)
-      // sk- 开头的几家格式一样：Key 不对时看看是不是别家的
-      if (isAuthError(e) && AMBIGUOUS_KEY_PROVIDERS.includes(id)) {
-        const p = await call<ProviderConfig>('provider', { id })
-        const r = await detectProvider(p.key).catch(() => null)
-        if (r?.provider && r.provider !== id) setVerify({ ...err, text: `${note}这个 Key 不是 ${pi.name} 的，看起来是 ${providerInfo(r.provider).name} 的`, switchTo: r.provider })
-      }
+      setVerify({ state: 'err', text: note + explain(e, pi.tags.includes('需要代理')) })
     }
   }
 
   const save = async () => {
     const k = key.trim()
-    if (custom && !url.trim()) return setVerify({ state: 'err', text: '请先填写接口地址' })
-    if (!k && !urlChanged) return
+    if (!k) return
     setBusy(true)
     try {
-      // 格式能确定是别家的 Key：自动切换过去
-      const byFormat = k && !custom ? providerByKeyFormat(k) : null
+      const byFormat = k ? providerByKeyFormat(k) : null
       const id = byFormat && byFormat !== info.id ? byFormat : info.id
       const note = id !== info.id ? `这是 ${providerInfo(id).name} 的 Key，已切换过去。` : ''
-      const baseUrl = url.trim().replace(/^https?:\/\//i, (m) => m.toLowerCase())
-      if (custom && baseUrl !== url) setUrl(baseUrl)
-      await update({ provider: id, providers: { [id]: { ...(k ? { key: k } : {}), ...(custom ? { baseUrl } : {}) } } })
+      await update({ provider: id, providers: { [id]: { ...(k ? { key: k } : {}) } } })
       setKey('')
-      if (!k && !conf?.key) setVerify({ state: 'ok', text: '接口地址已保存，再填上 API Key' })
+      if (!k && !conf?.key) setVerify({ state: 'ok', text: '已保存，再填上 API Key' })
       else if (id === info.id) await check(id, note)
       // 切到别家时本组件会重建，由新服务商那边自己验证
       else pendingCheck = { id, note }
@@ -504,24 +489,6 @@ function ProviderSetup({ s, update, openModels }: { s: S; update: (p: Patch) => 
         )}
       </div>
 
-      {custom && (
-        <label className="s-label">
-          接口地址
-          <input
-            className="s-input mono"
-            type="url"
-            inputMode="url"
-            placeholder="https://…/v1（中转站、Ollama、LM Studio 等）"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            spellCheck={false}
-            autoComplete="off"
-            autoCapitalize="off"
-            autoCorrect="off"
-          />
-        </label>
-      )}
-
       <label className="s-label">
         API Key
         {conf?.key && (
@@ -550,7 +517,7 @@ function ProviderSetup({ s, update, openModels }: { s: S; update: (p: Patch) => 
         <button className="s-icon-btn" onClick={() => setShow((v) => !v)}>
           {show ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
-        <button className="s-btn primary" disabled={busy || (!key.trim() && !urlChanged)} onClick={() => void save()}>
+        <button className="s-btn primary" disabled={busy || !key.trim()} onClick={() => void save()}>
           {busy ? <RefreshCw size={14} className="spin" /> : '保存'}
         </button>
       </div>
@@ -562,11 +529,6 @@ function ProviderSetup({ s, update, openModels }: { s: S; update: (p: Patch) => 
             {verify.text}
             {verify.state === 'ok' && conf?.key && !conf.model && '，请选择一个模型'}
           </span>
-          {verify.state === 'err' && verify.switchTo && (
-            <button className="s-btn sm" onClick={() => void moveKey(info.id, verify.switchTo!, update)}>
-              改存到 {providerInfo(verify.switchTo).name}
-            </button>
-          )}
         </div>
       )}
 
@@ -605,15 +567,8 @@ function ProviderSetup({ s, update, openModels }: { s: S; update: (p: Patch) => 
   )
 }
 
-/** 保存后因 Key 格式切换到别家：新服务商的面板挂载后接着验证 */
+/** 保存后接着验证 */
 let pendingCheck: { id: ProviderId; note: string } | null = null
-
-/** 把 Key 从一家挪到另一家（验证时发现填错了服务商） */
-async function moveKey(from: ProviderId, to: ProviderId, update: (p: Patch) => Promise<void>) {
-  const p = await call<ProviderConfig>('provider', { id: from })
-  pendingCheck = { id: to, note: '' }
-  await update({ provider: to, providers: { [to]: { key: p.key }, [from]: { key: '', model: '' } } })
-}
 
 function isAuthError(e: unknown) {
   const status = (e as { status?: number }).status

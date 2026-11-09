@@ -2,7 +2,7 @@
 // 共用同一套提示词与 JSONL 流式解析；网络由宿主注入（platform.ts），截图界面一打开就预连接。桌面与安卓共用
 import OpenAI from 'openai'
 import type { ErrorCode, Language, OcrLine, TranslatedBlock, TranslateEvent } from '../shared/types'
-import { env, pfetch, preconnect } from './platform'
+import { pfetch, preconnect } from './platform'
 
 export interface EngineCredentials {
   baseURL: string
@@ -215,30 +215,12 @@ export class BlockParser {
   }
 }
 
-// ------------------------------------------------------------------ OpenAI 兼容引擎（OpenAI 官方 / Codex 中转 / DeepSeek、通义等）
-/**
- * 推理强度依次尝试；模型不支持该档时退到下一档，最后不带 reasoning。
- * 翻译不需要深度思考：DeepSeek V4、GLM 等默认会先思考几百个 token，关掉后首字快 2–4 倍
- */
-function effortsFor(_model: string): (string | null)[] {
-  // 自测对照用：LENS_OPENAI_EFFORT=default 不传推理参数（模型默认会思考）
-  if (env('LENS_OPENAI_EFFORT') === 'default') return [null]
-  return ['none', 'minimal', 'low', null]
-}
-
+// ------------------------------------------------------------------ DeepSeek 引擎（OpenAI 兼容 Chat Completions）
 type Part = { type: 'text'; text: string } | { type: 'image'; url: string }
 
-/** 服务商没有 Responses 接口（多数国产模型的官方 API 只有 Chat Completions） */
-function missingEndpoint(e: unknown) {
-  if (!(e instanceof OpenAI.APIError)) return false
-  if (/model/i.test(e.message) && !/responses/i.test(e.message)) return false // 「模型不存在」也是 404，不能当成没有接口
-  if (e.status === 404 || e.status === 405 || e.status === 501) return true
-  return e.status === 400 && /(responses|endpoint|not supported|unsupported).*(api|path|url|endpoint|route)|invalid url|unknown url/i.test(e.message)
-}
-
-/** Key 无效：多数服务返回 401，Gemini 返回 400 */
+/** Key 无效：DeepSeek 返回 401 */
 function badKey(e: unknown) {
-  return e instanceof OpenAI.BadRequestError && /api[ _-]?key|API_KEY_INVALID/i.test(e.message)
+  return e instanceof OpenAI.BadRequestError && /api[ _-]?key|authentication/i.test(e.message)
 }
 
 /** 模型不能看图 */
@@ -249,30 +231,25 @@ function imageUnsupported(e: unknown) {
 export class OpenAIEngine implements Engine {
   readonly name: string
   private client: OpenAI
-  /** 已知该模型可用的推理强度，避免每次都从头试 */
-  private effortIdx = 0
   /** 模型不支持看图：只发 OCR 文本 */
   private textOnly = false
-  /** 先用 Responses（与 Codex 相同），服务商没有这个接口时改用 Chat Completions 并记住 */
-  private api: 'responses' | 'chat'
-  /** Chat Completions 里关掉思考的参数（各家写法不同）；服务商不认时去掉并记住 */
+  /** 关闭思考的参数；服务端不认时去掉，之后不再发送 */
   private extra: Record<string, unknown> | null
 
   constructor(
     private creds: EngineCredentials,
     private model: string,
-    opts: { api?: 'responses' | 'chat' | 'auto'; chatExtra?: Record<string, unknown>; timeout?: number; maxRetries?: number } = {}
+    opts: { chatExtra?: Record<string, unknown>; timeout?: number; maxRetries?: number } = {}
   ) {
     this.name = model
-    this.api = opts.api === 'chat' || env('LENS_OPENAI_API') === 'chat' ? 'chat' : 'responses'
-    this.extra = env('LENS_OPENAI_EFFORT') === 'default' ? null : (opts.chatExtra ?? null)
+    this.extra = opts.chatExtra ?? null
     this.client = new OpenAI({
       apiKey: creds.apiKey,
       baseURL: creds.baseURL,
       maxRetries: opts.maxRetries ?? 1,
       timeout: opts.timeout ?? 60_000,
       fetch: pfetch,
-      // 安卓版在 WebView 里运行；Key 是用户自己的，只发给用户配置的服务
+      // 安卓版在 WebView 里运行；Key 是用户自己的，只发给 DeepSeek
       dangerouslyAllowBrowser: true
     })
   }
@@ -281,77 +258,8 @@ export class OpenAIEngine implements Engine {
     preconnect(this.creds.baseURL)
   }
 
-  /** 模型不支持当前推理强度时自动换下一档 */
-  private async withEffort<T>(call: (effort: string | null) => Promise<T>): Promise<T> {
-    const efforts = effortsFor(this.model)
-    for (;;) {
-      const effort = efforts[Math.min(this.effortIdx, efforts.length - 1)]
-      try {
-        return await call(effort)
-      } catch (e) {
-        if (e instanceof OpenAI.BadRequestError && effort && !badKey(e)) {
-          // 明确是这一档不支持：试下一档；其他 400（可能根本不认 reasoning 参数）：直接不带它重试
-          this.effortIdx = /reason|effort/i.test(e.message) ? this.effortIdx + 1 : efforts.length - 1
-          continue
-        }
-        throw e
-      }
-    }
-  }
-
   /** 流式请求，逐段回调文本，返回用量 */
   private async run(instructions: string, parts: Part[], signal: AbortSignal, onText: (d: string) => void): Promise<TranslateResult['usage']> {
-    if (this.api === 'responses') {
-      try {
-        const stream = await this.withEffort((effort) =>
-          this.client.responses.create(
-            {
-              model: this.model,
-              instructions,
-              input: [
-                {
-                  role: 'user',
-                  content: parts.map((p) =>
-                    p.type === 'text' ? { type: 'input_text' as const, text: p.text } : { type: 'input_image' as const, image_url: p.url, detail: 'high' as const }
-                  )
-                }
-              ],
-              stream: true,
-              store: false,
-              ...(effort ? { reasoning: { effort: effort as OpenAI.ReasoningEffort } } : {})
-            },
-            { signal }
-          )
-        )
-        return await this.drain(stream, onText)
-      } catch (e) {
-        if (!missingEndpoint(e)) throw e
-        this.api = 'chat'
-      }
-    }
-    return this.chat(instructions, parts, signal, onText)
-  }
-
-  private async drain(stream: AsyncIterable<OpenAI.Responses.ResponseStreamEvent>, onText: (d: string) => void) {
-    let usage: TranslateResult['usage']
-    for await (const ev of stream) {
-      if (ev.type === 'response.output_text.delta') onText(ev.delta)
-      else if (ev.type === 'response.completed') {
-        const u = ev.response.usage
-        if (u) usage = { input: u.input_tokens, output: u.output_tokens }
-      } else if (ev.type === 'response.failed') {
-        // ChatGPT 会员额度：用完 / 暂不可用
-        const code = String(ev.response.error?.code ?? '')
-        if (code === 'subscription_sharing_usage_limit_exceeded') throw new TranslateError('ChatGPT 会员额度已用完，过一阵再试，或改用 API Key', 'rate-limit', { id: 'err.quotaUsed' })
-        if (code === 'subscription_sharing_usage_unavailable') throw new TranslateError('ChatGPT 会员额度暂时不可用，稍后再试', 'rate-limit', { id: 'err.quotaUnavailable' })
-        throw new TranslateError(ev.response.error?.message ?? '模型返回失败', 'unknown', ev.response.error?.message ? undefined : { id: 'err.modelFailed' })
-      } else if (ev.type === 'response.incomplete') throw new TranslateError('模型没有完整返回，请重试', 'unknown', { id: 'err.incomplete' })
-      else if (ev.type === 'error') throw new TranslateError(ev.message ?? '模型返回错误', 'unknown', ev.message ? undefined : { id: 'err.modelError' })
-    }
-    return usage
-  }
-
-  private async chat(instructions: string, parts: Part[], signal: AbortSignal, onText: (d: string) => void) {
     const content =
       parts.length === 1 && parts[0].type === 'text'
         ? parts[0].text
@@ -370,20 +278,24 @@ export class OpenAIEngine implements Engine {
         } as OpenAI.ChatCompletionCreateParamsStreaming,
         { signal }
       )
-    // 有服务商专用的"关闭思考"参数就用它，否则用 reasoning_effort 逐档尝试
-    const open = (usage: boolean) =>
-      this.extra ? create(usage, this.extra) : this.withEffort((effort) => create(usage, effort ? { reasoning_effort: effort } : {}))
-    let stream
-    for (let usage = true; ; ) {
+    let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>
+    let withUsage = true
+    for (;;) {
       try {
-        stream = await open(usage)
+        stream = await create(withUsage, this.extra ?? {})
         break
       } catch (e) {
-        if (!(e instanceof OpenAI.BadRequestError)) throw e
-        // 少数服务不认 stream_options
-        if (usage && /stream_options|include_usage/i.test(e.message)) usage = false
-        else if (this.extra && !badKey(e)) this.extra = null
-        else throw e
+        if (!(e instanceof OpenAI.BadRequestError) || badKey(e)) throw e
+        // 服务端不认 stream_options / 关闭思考的参数：去掉后重试一次
+        if (withUsage && /stream_options|include_usage/i.test(e.message)) {
+          withUsage = false
+          continue
+        }
+        if (this.extra) {
+          this.extra = null
+          continue
+        }
+        throw e
       }
     }
     let usage: TranslateResult['usage']
@@ -400,9 +312,10 @@ export class OpenAIEngine implements Engine {
     if (e instanceof TranslateError) throw e
     if (e instanceof OpenAI.AuthenticationError || e instanceof OpenAI.PermissionDeniedError || badKey(e)) throw new TranslateError('API Key 无效或已停用', 'auth', { id: 'err.badKey' })
     if (e instanceof OpenAI.RateLimitError) throw new TranslateError('请求过于频繁或额度不足', 'rate-limit', { id: 'err.rateLimit' })
-    if (e instanceof OpenAI.APIConnectionError) throw new TranslateError('无法连接到 API 服务', 'network', { id: 'err.network' })
+    if (e instanceof OpenAI.APIConnectionError) throw new TranslateError('无法连接到 DeepSeek', 'network', { id: 'err.network' })
     if (e instanceof OpenAI.APIError) {
-      if (/no available .*accounts? support/i.test(e.message)) throw new TranslateError(`服务商当前没有可用的 ${this.model}，请在设置里换个模型`, 'unknown', { id: 'err.modelUnavailable', vars: { model: this.model } })
+      if (e.status === 402 || /insufficient|balance|quota/i.test(e.message))
+        throw new TranslateError('DeepSeek 账户余额不足，请充值后重试', 'auth', { id: 'err.balance' })
       throw new TranslateError(`API 错误 ${e.status ?? ''}：${e.message}`, 'unknown', { id: 'err.api', vars: { status: e.status ?? '', msg: e.message } })
     }
     throw new TranslateError(e instanceof Error ? e.message : String(e), 'unknown')
@@ -446,22 +359,8 @@ export class OpenAIEngine implements Engine {
     }
   }
 
+  /** 手机设置页列模型用；桌面版固定三档，不再调用 */
   async listModels(): Promise<string[]> {
-    const url = new URL(this.creds.baseURL)
-    // Gemini 的 OpenAI 兼容接口不一定提供模型列表，改用原生接口，只保留能生成内容的模型
-    if (url.host === 'generativelanguage.googleapis.com') {
-      const res = await pfetch(`${url.origin}/v1beta/models?pageSize=1000`, { headers: { 'x-goog-api-key': this.creds.apiKey } })
-      const json = (await res.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[]; error?: { message: string } }
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`)
-      return (json.models ?? []).filter((m) => m.supportedGenerationMethods?.includes('generateContent')).map((m) => m.name.replace(/^models\//, ''))
-    }
-    // Claude 的兼容接口只覆盖对话，模型列表用 Anthropic 原生接口（x-api-key）
-    if (url.host === 'api.anthropic.com') {
-      const res = await pfetch(`${url.origin}/v1/models?limit=1000`, { headers: { 'x-api-key': this.creds.apiKey, 'anthropic-version': '2023-06-01' } })
-      const json = (await res.json()) as { data?: { id: string }[]; error?: { message: string } }
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`)
-      return (json.data ?? []).map((m) => m.id)
-    }
     const ids: string[] = []
     for await (const m of this.client.models.list()) ids.push(m.id.replace(/^models\//, ''))
     return ids

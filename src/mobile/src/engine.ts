@@ -43,7 +43,7 @@ export function resolveProvider(s: MobileSettings, id: ProviderId = s.provider):
 export function engineProblem(s: MobileSettings): string | null {
   const info = providerInfo(s.provider)
   const r = resolveProvider(s)
-  if (!r) return info.id === 'custom' && s.providers.custom?.key ? '还没有填写接口地址' : '还没有填写 API Key'
+  if (!r) return '还没有填写 API Key'
   if (!r.model) return `${info.name} · 请选择一个模型`
   return null
 }
@@ -58,7 +58,7 @@ export function engineFor(s: MobileSettings): OpenAIEngine | null {
   let e = cache.get(key)
   if (!e) {
     cache.clear()
-    e = new OpenAIEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, r.model, { api: r.info.api, chatExtra: r.info.chatExtra })
+    e = new OpenAIEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, r.model, { chatExtra: r.info.chatExtra })
     cache.set(key, e)
   }
   return e

@@ -26,13 +26,15 @@
 
 | Platform | Download | First translation |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.9](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.9/LavaTranslate-Setup-1.4.9.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
+| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.10](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.10/LavaTranslate-Setup-1.4.10.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
 | Android 10+ · arm64 | [Android APK, v1.4.7](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.7/LavaTranslate-Android-1.4.7.apk) | Open the app and add an API key. On Android 11+, enable LavaTranslate under Accessibility. Tap the app icon, then **Translate**. On Android 10, use screen sharing. |
-| macOS · Apple Silicon (M-series) | [Mac installer (.dmg), v1.4.9](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.9/LavaTranslate-Mac-1.4.9-arm64.dmg) | Open **Settings** from the menu bar and configure a service. Press **Option + Space**, grant Screen Recording permission, then drag over the text. |
+| macOS · Apple Silicon (M-series) | [Mac installer (.dmg), v1.4.10](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.10/LavaTranslate-Mac-1.4.10-arm64.dmg) | Open **Settings** from the menu bar and configure a service. Press **Option + Space**, grant Screen Recording permission, then drag over the text. |
 
 The Windows installer is unsigned. If SmartScreen shows **Unknown publisher**, use **More info → Run anyway** after checking that the file came from the release linked above.
 
 ### Recent changes
+
+- **Windows and Mac 1.4.10** collapse pinned images into desktop tiles, pin the original with Alt (Option), simplify the toolbar with grouped Translate / Reply / Compare actions, and add a compact shortcut guide; all 12 interface languages updated. [Release notes](docs/releases/v1.4.10.md)
 
 - **Windows and Mac 1.4.9** add the first downloadable Mac packages and enable Mac update checks/downloads. Mac installation remains a manual Finder step. Windows also fixes cancellation of a pending automatic update check. [Release notes](docs/releases/v1.4.9.md)
 
@@ -106,34 +108,21 @@ Install the APK linked under [Download and install](#download-and-install), then
 - **Fallback.** On Android 10, or if you'd rather not use Accessibility, switch to "截屏授权 (screen sharing)": a floating button in an overlay window plus Android's screen-sharing permission (granted again after the phone is locked or after a few idle minutes, with a persistent notification).
 - **In-app updates.** New versions are announced in the app, downloaded on Wi-Fi, and installed with one tap.
 
-## Setup: sign in with ChatGPT, or bring any API key
+## Setup: add a DeepSeek API key
 
-On Windows, double-click the tray icon. On Mac, choose **Settings** from the menu bar icon. Open **Translation service** to connect your account or add your own key. The desktop interface follows your system language by default and offers 12 languages under **Settings → General**.
+On Windows, double-click the tray icon. On Mac, choose **Settings** from the menu bar icon. On the **Translate** page, paste your DeepSeek API key, click **Save**, then **Test**. The interface follows your system language by default and offers 12 languages under **General**.
 
-- **ChatGPT Plus / Pro** — click **用 ChatGPT 登录 (Sign in with ChatGPT)**. Translations use your plan's usage instead of an API key. This is OpenAI's official "use your ChatGPT plan" sign-in for open-source apps.
-- **Any API key** — paste it and click **识别并保存 (Detect & save)**. LavaTranslate recognizes the provider from the key's format (`AIza…` Gemini, `sk-ant-…` Claude, `sk-or-…` OpenRouter, `sk-proj-…` OpenAI, Zhipu and Doubao formats), or by trying it against DeepSeek, OpenAI, Qwen and Kimi. If it still can't tell, it asks you to pick. For relays and local servers, also fill in the endpoint URL.
+There are three fixed models, selectable in Settings:
 
-Then pick a model (sorted by estimated cost per 1,000 screenshots) and click **测试翻译 (Test)**. Every key you add is kept, and the saved services appear as chips you can switch between. Each provider has step-by-step instructions and a link to its key page at the bottom of the page.
+- **`deepseek-flash`** (default): reads images, about 1 s to first token, half price off-peak;
+- **`deepseek-chat`**: the general chat model;
+- **`deepseek-reasoner`**: a reasoning model that thinks before writing, slower for everyday screenshot translation.
 
-<img src="docs/images/settings-service.png" width="560" alt="Translation service settings">
+Create a key at the [DeepSeek Platform](https://platform.deepseek.com/api_keys). The app only calls the official DeepSeek API, and the key is stored encrypted on Windows (plaintext on Mac — see Privacy).
 
-**Providers**
+<img src="docs/images/settings-service.png" width="560" alt="Translation settings">
 
-| Provider | Get a key | Good fast models | Notes |
-| --- | --- | --- | --- |
-| ChatGPT Plus / Pro | Sign in — no key | `gpt-6-luna` | Uses your plan's usage. |
-| Gemini | [Google AI Studio](https://aistudio.google.com/apikey) | `gemini-3.5-flash-lite` | Free tier; free-tier data may be used by Google. Needs a proxy in mainland China. |
-| OpenAI | [OpenAI Platform](https://platform.openai.com/api-keys) | `gpt-6-luna`, `gpt-5-mini` | ChatGPT plans don't include API credit. |
-| DeepSeek | [DeepSeek Platform](https://platform.deepseek.com/api_keys) | `deepseek-flash` | Reads images, ~1 s to first token, half price off-peak. |
-| Qwen (Alibaba Cloud) | [Model Studio](https://bailian.console.aliyun.com/?tab=model#/api-key) | `qwen3.8-flash` | Free quota for new users. |
-| Zhipu GLM | [BigModel](https://bigmodel.cn/usercenter/proj-mgmt/apikeys) | `glm-4.6v-flash` | Free vision model (one request at a time). |
-| Kimi | [Kimi Platform](https://platform.kimi.com/console/api-keys) | | |
-| Doubao (Volcano Engine) | [Ark console](https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey) | `doubao-seed-2.0-mini` | Free quota for new users. |
-| Claude | [Claude Console](https://platform.claude.com/settings/keys) | `claude-haiku-4-5` | API key only — Anthropic doesn't allow third-party apps to use Claude Pro/Max logins. Called through Anthropic's OpenAI-compatible endpoint. |
-| OpenRouter | [OpenRouter](https://openrouter.ai/settings/keys) | | One key for many vendors. |
-| Custom | — | | Any OpenAI-compatible endpoint: relays, Ollama, LM Studio… |
-
-LavaTranslate asks every model to skip "thinking" (each provider's own switch, falling back automatically), which makes translation 2–4× faster on models such as DeepSeek V4 Flash and GLM Flash. Models without image input still work: they translate from the OCR text alone, so they can't correct OCR mistakes. On the Custom provider, **从本机导入 (Import from this PC)** can fill in a key from Codex or CC Switch.
+> **About this fork:** a trimmed, personal Windows build that supports DeepSeek only. ChatGPT-plan sign-in, other providers, the model price list, key detection, local credential import and the offline-translation survey have been removed. The Android client has not been UI-trimmed. Automatic updates are off by default so an upstream build cannot overwrite this fork; enabling them in About would install the upstream multi-provider version.
 
 ## Shortcuts
 
@@ -158,7 +147,7 @@ On either desktop, drag to select a region, or click to select a window. Drag th
 ## Privacy
 
 - OCR runs on your device. Desktop translation sends the selected region (image and recognized text) to the service you configure. Android screen translation uses the current screen. Reply and type-to-translate requests also send the text you enter. Recent replies are stored locally so you can recall them with the arrow keys.
-- **Windows** uses Electron’s `safeStorage` (DPAPI) for API keys and ChatGPT sign-in tokens when system encryption is available. **Android** encrypts API keys with a key held in Android Keystore.
+- **Windows** uses Electron’s `safeStorage` (DPAPI) for API keys when system encryption is available. **Android** encrypts API keys with a key held in Android Keystore.
 - **macOS** stores credentials in plaintext in the app’s local `settings.json`. File mode `0600` limits access to your macOS account, including apps running as you. The settings window masks keys. If upgrading from a preview that used Keychain, re-enter your key once. Keep the settings file private.
 
 ## Updates
@@ -174,8 +163,11 @@ On either desktop, drag to select a region, or click to select a window. Drag th
 
 ## FAQ
 
-**Can I use my ChatGPT / Codex subscription?**
-Yes, with ChatGPT Plus or Pro: Settings → 翻译服务 → **用 ChatGPT 登录**. Translations count against your plan's usage. Claude Pro/Max can't be used this way — Anthropic doesn't allow third-party apps to use claude.ai logins — so Claude needs an API key.
+**Can I use ChatGPT, Gemini or other models?**
+This trimmed fork supports DeepSeek only. ChatGPT-plan sign-in and the other providers have been removed; use the upstream project if you need them.
+
+**Translation feels slow?**
+Keep the default `deepseek-flash`. `deepseek-reasoner` thinks before writing, so everyday screenshot translation is noticeably slower.
 
 **The translation is slow.**
 Choose a smaller model (marked 快 / fast). Reasoning-heavy models spend seconds thinking before they write.
