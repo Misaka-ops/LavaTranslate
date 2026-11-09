@@ -4,7 +4,6 @@ import {
   ChevronDown,
   Columns2,
   Download,
-  ExternalLink,
   Globe,
   Info,
   KeyRound,
@@ -30,9 +29,7 @@ import {
 } from '@shared/types'
 import { UI_LANGS, type MsgKey } from '@shared/i18n'
 import { acceleratorLabel } from '@shared/hotkeys'
-import { macUpdateText } from '@shared/mac-update'
 import { useI18n, type I18n } from '../lib/i18n'
-import { isMac } from '../lib/desktop'
 
 type Page = 'translate' | 'general' | 'about'
 
@@ -51,12 +48,9 @@ export function Settings() {
   const [ocr, setOcr] = useState('')
   const [version, setVersion] = useState('')
   const [upd, setUpd] = useState<UpdateState | null>(null)
-  const [loadError, setLoadError] = useState('')
-  const zh = i.lang.startsWith('zh')
 
   const loadSettings = useCallback(() => {
-    setLoadError('')
-    void window.lens.getSettings().then(setS).catch(() => setLoadError('Unable to load settings'))
+    void window.lens.getSettings().then(setS)
   }, [])
 
   const refreshStatus = useCallback(() => {
@@ -92,17 +86,9 @@ export function Settings() {
     setS(await window.lens.setSettings(patch))
   }, [])
 
-  if (!s) return isMac ? (
-    <div className="app mac">
-      <header className="titlebar"><span>LavaTranslate</span></header>
-      <main className="content">
-        <h2>{loadError ? (zh ? '设置加载失败' : 'Unable to load settings') : (zh ? '正在加载设置…' : 'Loading settings…')}</h2>
-        {loadError && <button className="btn" onClick={loadSettings}>{zh ? '重试' : 'Retry'}</button>}
-      </main>
-    </div>
-  ) : null
+  if (!s) return null
   return (
-    <div className={`app${isMac ? ' mac' : ''}`}>
+    <div className="app">
       <header className="titlebar">
         <img src="./icon.png" alt="" />
         <span>LavaTranslate</span>
@@ -119,7 +105,7 @@ export function Settings() {
           <div className="nav-foot">
             <button className="nav-status" onClick={() => setPage('translate')}>
               <span className={`dot ${status?.ok ? 'ok' : 'bad'}`} />
-              {status?.locked ? (zh ? '需重新填写 Key' : 'Re-enter key') : status?.ok ? t('nav.ready') : t('nav.needSetup')}
+              {status?.ok ? t('nav.ready') : t('nav.needSetup')}
             </button>
             <button className={`nav-ver${upd?.state === 'ready' ? ' hot' : ''}`} onClick={() => setPage('about')}>
               v{version} · {updateShort(upd, i)}
@@ -127,15 +113,6 @@ export function Settings() {
           </div>
         </nav>
         <main className="content">
-          {isMac && status?.locked && (
-            <div className="mac-credentials" role="status">
-              <div className="status-bar">
-                <KeyRound size={18} />
-                <span className="status-text">{zh ? '旧版 Key 已加密，请重新填写一次。新 Key 将直接保存在此 Mac，无需钥匙串密码。' : 'Your old key is encrypted. Enter it again to save it locally on this Mac without Keychain.'}</span>
-                <button className="btn" onClick={() => setPage('translate')}>{zh ? '重新填写 Key' : 'Enter key again'}</button>
-              </div>
-            </div>
-          )}
           <AnimatePresence mode="wait">
             <motion.div
               key={page}
@@ -419,34 +396,14 @@ function DeepSeekCard({ s, update, status, refresh }: { s: S; update: Upd; statu
 
 function GeneralPage({ s, update }: { s: S; update: Upd }) {
   const { t, lang } = useI18n()
-  const zh = lang.startsWith('zh')
-  const [mac, setMac] = useState<Awaited<ReturnType<Window['lens']['macSettingsStatus']>>>(null)
-  const [systemError, setSystemError] = useState('')
-  const refreshMac = useCallback(() => {
-    if (isMac) void window.lens.macSettingsStatus().then(setMac).catch(() => setSystemError(zh ? '无法读取系统状态，请在系统设置中确认。' : 'Check the current status in System Settings.'))
-  }, [zh])
-  useEffect(() => {
-    refreshMac()
-    window.addEventListener('focus', refreshMac)
-    return () => window.removeEventListener('focus', refreshMac)
-  }, [refreshMac, s.launchAtLogin])
-  const openSystem = async (pane: 'screen' | 'input' | 'login' | 'keyboard') => {
-    setSystemError('')
-    try { await window.lens.openMacSettings(pane) }
-    catch { setSystemError(zh ? '未能打开系统设置，请从苹果菜单手动打开。' : 'Open System Settings from the Apple menu.') }
-  }
-  const permission = (allowed?: boolean) => allowed === undefined ? (zh ? '正在读取…' : 'Checking…') : allowed ? (zh ? '已允许' : 'Allowed') : (zh ? '未生效' : 'Not active')
   const known = UI_LANGS.some((l) => l.code === s.uiLang)
   return (
     <>
       <h2>{t('gen.title')}</h2>
-      <Card title={t('gen.hotkey')} desc={t('gen.hotkeyDesc', { key: acceleratorLabel(s.hotkey, isMac ? 'darwin' : 'win32', lang) })} icon={<Keyboard size={18} />}>
+      <Card title={t('gen.hotkey')} desc={t('gen.hotkeyDesc', { key: acceleratorLabel(s.hotkey, lang) })} icon={<Keyboard size={18} />}>
         <HotkeyInput value={s.hotkey} />
       </Card>
-      {!isMac && s.hotkey === 'Super+Space' && <div className="note hotkey-note">{t('gen.winSpace')}</div>}
-      {isMac && <Card title={zh ? '系统快捷键' : 'macOS keyboard shortcuts'} desc={zh ? '如果组合键与系统功能冲突，可在「系统设置 → 键盘 → 键盘快捷键」中查看。' : 'Check conflicts in System Settings → Keyboard → Keyboard Shortcuts.'}>
-        <button className="btn" onClick={() => void openSystem('keyboard')}><ExternalLink size={14} />{zh ? '打开键盘设置' : 'Keyboard settings'}</button>
-      </Card>}
+      {s.hotkey === 'Super+Space' && <div className="note hotkey-note">{t('gen.winSpace')}</div>}
       <Card title={t('gen.uiLang')} desc={t('gen.uiLang') === 'Language' ? undefined : 'Language'} icon={<Globe size={18} />}>
         <Select
           value={known ? s.uiLang : 'auto'}
@@ -454,23 +411,9 @@ function GeneralPage({ s, update }: { s: S; update: Upd }) {
           onChange={(v) => update({ uiLang: v })}
         />
       </Card>
-      <Card title={t('gen.launch', { system: isMac ? 'macOS' : 'Windows' })} desc={t('gen.launchDesc', { system: isMac ? 'macOS' : 'Windows' })} icon={<Power size={18} />}>
-        <div className="row-gap">
-          {isMac && <button className="link" onClick={() => void openSystem('login')}>{zh ? '管理登录项' : 'Manage login items'}</button>}
-          <Toggle on={isMac ? mac?.launchAtLogin ?? s.launchAtLogin : s.launchAtLogin} onChange={(v) => update({ launchAtLogin: v })} />
-        </div>
+      <Card title={t('gen.launch', { system: 'Windows' })} desc={t('gen.launchDesc', { system: 'Windows' })} icon={<Power size={18} />}>
+        <Toggle on={s.launchAtLogin} onChange={(v) => update({ launchAtLogin: v })} />
       </Card>
-      {isMac && <>
-        <h3 className="h3">{zh ? '隐私与安全' : 'Privacy & Security'}</h3>
-        <Card title={zh ? '录屏与系统录音' : 'Screen & System Audio Recording'} desc={zh ? '用于截取要翻译的屏幕区域，不采集音频。打开「隐私与安全 → 录屏与系统录音」，允许 LavaTranslate。' : 'Required to capture your selected area. No audio is recorded. Allow LavaTranslate in Privacy & Security → Screen & System Audio Recording.'}>
-          <div className="row-gap"><span className="muted">{permission(mac?.screen)}</span><button className="btn" onClick={() => void openSystem('screen')}>{zh ? '打开设置' : 'Open settings'}</button></div>
-        </Card>
-        <Card title={zh ? '输入监控' : 'Input Monitoring'} desc={zh ? '用于按住空格操作下层应用，只读取空格状态。普通截图不需要此权限。' : 'Enables holding Space to interact with the app underneath. Only the Space key state is read. Optional for normal capture.'}>
-          <div className="row-gap"><span className="muted">{permission(mac?.input)}</span><button className="btn" onClick={() => void openSystem('input')}>{zh ? '打开设置' : 'Open settings'}</button></div>
-        </Card>
-        <div className="note">{zh ? '状态以当前应用检测结果为准。若系统开关已打开但权限未生效，请按系统提示重新授权并用 ⌘ Q 退出后再打开。关闭设置窗口后，应用仍会在菜单栏运行。' : 'Status reflects access detected by this app. If a system switch is on but access is inactive, follow macOS prompts to authorize it again, then quit with ⌘ Q and reopen. Closing this window keeps the app running in the menu bar.'}</div>
-        {systemError && <div className="note err">{systemError}</div>}
-      </>}
     </>
   )
 }
@@ -500,7 +443,7 @@ function HotkeyInput({ value }: { value: string }) {
         setRec(false)
         return
       }
-      const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && (isMac ? 'Command' : 'Super')].filter(Boolean) as string[]
+      const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean) as string[]
       const key = keyName(e.code)
       setDraft(key ? [...mods, key] : mods)
       if (!key) return
@@ -536,7 +479,7 @@ function HotkeyInput({ value }: { value: string }) {
         {keys.length ? (
           keys.map((k, n) => (
             <motion.span key={k + n} className="keycap sm" initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-              {acceleratorLabel(k, isMac ? 'darwin' : 'win32', lang)}
+              {acceleratorLabel(k, lang)}
             </motion.span>
           ))
         ) : (
@@ -619,11 +562,7 @@ function About({ s, update, version, ocr }: { s: S; update: (p: SettingsPatch) =
         </div>
         {u?.state === 'ready' ? (
           <button className="btn primary" onClick={() => window.lens.updateInstall()}>
-            {u.manualInstall ? macUpdateText(i.lang, 'open') : t('about.restart')}
-          </button>
-        ) : isMac && u?.state === 'disabled' ? (
-          <button className="btn" onClick={() => window.lens.openExternal('https://github.com/chengcczzjj/LavaTranslate/releases')}>
-            <ExternalLink size={14} />{i.lang.startsWith('zh') ? '查看发布页' : 'View releases'}
+            {t('about.restart')}
           </button>
         ) : (
           <button className="btn" disabled={busy || u?.state === 'disabled' || u?.state === 'downloading'} onClick={() => void check()}>
@@ -631,7 +570,7 @@ function About({ s, update, version, ocr }: { s: S; update: (p: SettingsPatch) =
           </button>
         )}
       </div>
-      {u?.state !== 'disabled' && <Card title={t('about.autoUpdate')} desc={u?.manualInstall ? macUpdateText(i.lang, 'auto') : t('about.autoUpdateDesc')} icon={<Download size={18} />}>
+      {u?.state !== 'disabled' && <Card title={t('about.autoUpdate')} desc={t('about.autoUpdateDesc')} icon={<Download size={18} />}>
         <Toggle on={s.autoUpdate} onChange={(v) => update({ autoUpdate: v })} />
       </Card>}
 
@@ -682,13 +621,13 @@ function updateTitle(u: UpdateState | null, busy: boolean, { t }: I18n) {
   }
 }
 
-function updateDesc(u: UpdateState | null, { t, lang }: I18n) {
+function updateDesc(u: UpdateState | null, { t }: I18n) {
   switch (u?.state) {
     case 'available':
     case 'downloading':
       return t('upd.desc.downloading', { p: u.percent })
     case 'ready':
-      return u.manualInstall ? macUpdateText(lang, 'ready') : t('upd.desc.ready')
+      return t('upd.desc.ready')
     case 'error':
     case 'disabled':
       return u.message

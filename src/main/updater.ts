@@ -1,16 +1,9 @@
-// 自动更新：GitHub Releases（electron-updater，NSIS 安装包按块差量下载）
-import { app, shell } from 'electron'
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+// 自动更新：Windows 版通过 GitHub Releases 检查并安装（electron-updater，NSIS 按块差量下载）
+import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import type { UpdateState } from '../shared/types'
 import type { MsgKey } from '../shared/i18n'
-import { t, uiLang } from './i18n'
-import { macUpdateText } from '../shared/mac-update'
-
-const mac = process.platform === 'darwin'
-let manualInstall = mac
-let downloadedFile = ''
+import { t } from './i18n'
 
 const CHECK_EVERY = 4 * 3600 * 1000
 
@@ -29,8 +22,7 @@ function set(s: UpdateState) {
 const MSG_KEYS = new Set<string>(['upd.devBuild', 'upd.noRelease', 'upd.offline', 'upd.noNew'])
 
 export function updateState(): UpdateState {
-  const current = { ...state, manualInstall }
-  if ('message' in current && current.message === 'mac.missing') current.message = macUpdateText(uiLang(), 'missing')
+  const current = { ...state }
   if ('message' in current && current.message && MSG_KEYS.has(current.message)) current.message = t(current.message as MsgKey)
   return current
 }
@@ -43,22 +35,8 @@ export function initUpdater(opts: { enabled: () => boolean; onChange: (s: Update
     set({ state: 'disabled', version, message: 'upd.devBuild' })
     return
   }
-  if (mac) {
-    // Only the signed build entry point opts into native Squirrel installation.
-    try { manualInstall = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')).macUpdateMode !== 'native' } catch { manualInstall = true }
-    // The latest release retains the Mac manifest even for Windows-only releases.
-    // GenericProvider preserves absolute URLs pointing to the original Mac assets;
-    // GitHubProvider would incorrectly prepend the latest release's tag to them.
-    autoUpdater.setFeedURL({
-      provider: 'generic',
-      url: 'https://github.com/chengcczzjj/LavaTranslate/releases/latest/download/',
-      useMultipleRangeRequest: false
-    })
-  }
   autoUpdater.autoDownload = true
-  // MacUpdater downloads and verifies the ZIP but must not hand ad-hoc builds to
-  // Squirrel.Mac. Finder installation retains normal macOS security checks.
-  autoUpdater.autoInstallOnAppQuit = !manualInstall
+  autoUpdater.autoInstallOnAppQuit = true
   let next = ''
   autoUpdater.on('checking-for-update', () => {
     if (state.state !== 'downloading' && state.state !== 'ready') set({ state: 'checking', version })
@@ -70,7 +48,6 @@ export function initUpdater(opts: { enabled: () => boolean; onChange: (s: Update
   autoUpdater.on('update-not-available', () => set({ state: 'latest', version }))
   autoUpdater.on('download-progress', (p) => set({ state: 'downloading', version, next, percent: Math.round(p.percent) }))
   autoUpdater.on('update-downloaded', (info) => {
-    downloadedFile = info.downloadedFile
     set({ state: 'ready', version, next: info.version })
   })
   autoUpdater.on('error', (e) => {
@@ -89,7 +66,7 @@ function schedule() {
   timer = setInterval(() => void check(), CHECK_EVERY)
 }
 
-/** 设置里切换"自动更新"后调用 */
+/** 设置里切换“自动更新”后调用 */
 export function setAutoUpdate(on: boolean) {
   if (!app.isPackaged) return
   if (on) schedule()
@@ -114,11 +91,6 @@ export async function check(): Promise<UpdateState> {
 
 export function installNow() {
   if (state.state !== 'ready') return
-  if (manualInstall) {
-    if (downloadedFile && existsSync(downloadedFile)) shell.showItemInFolder(downloadedFile)
-    else set({ state: 'error', version: app.getVersion(), message: 'mac.missing' })
-    return
-  }
   autoUpdater.quitAndInstall(true, true)
 }
 
@@ -126,9 +98,7 @@ export function installNow() {
 function failed(e: unknown): UpdateState {
   const version = app.getVersion()
   const msg = e instanceof Error ? e.message : String(e)
-  if (/\b404\b/.test(msg)) return mac
-    ? { state: 'error', version, message: 'mac.missing' }
-    : { state: 'latest', version, message: 'upd.noRelease' }
+  if (/\b404\b/.test(msg)) return { state: 'latest', version, message: 'upd.noRelease' }
   return { state: 'error', version, message: friendly(e) }
 }
 

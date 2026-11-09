@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, type ProviderConfig, type ProviderId, type Settings, type SettingsPatch } from '../shared/types'
 import { encryptSecret, isMasked, maskSecret } from './secrets'
@@ -7,7 +7,7 @@ import { encryptSecret, isMasked, maskSecret } from './secrets'
 type Listener = (next: Settings, prev: Settings) => void
 
 const EMPTY: ProviderConfig = { key: '', baseUrl: '', model: 'deepseek-flash' }
-const defaults: Settings = { ...DEFAULT_SETTINGS, hotkey: process.platform === 'darwin' ? 'Alt+Space' : DEFAULT_SETTINGS.hotkey }
+const defaults: Settings = { ...DEFAULT_SETTINGS }
 
 /**
  * 旧版设置（多服务商、ChatGPT 登录、离线投票）转成只管 DeepSeek 的结构。
@@ -53,7 +53,6 @@ class SettingsStore {
     mkdirSync(dir, { recursive: true })
     this.file = join(dir, 'settings.json')
     if (existsSync(this.file)) {
-      if (process.platform === 'darwin') chmodSync(this.file, 0o600)
       let changed = false
       try {
         ;({ data: this.data, changed } = migrate(JSON.parse(readFileSync(this.file, 'utf8'))))
@@ -66,15 +65,14 @@ class SettingsStore {
         }
         this.data = { ...defaults }
       }
-      // 迁移各平台的旧默认键，保留其他自定义快捷键。
-      if ((process.platform === 'darwin' && this.data.hotkey === 'Command+Shift+2') ||
-          (process.platform === 'win32' && this.data.hotkey === 'Alt+Q')) {
+      // 迁移旧默认键，保留其他自定义快捷键。
+      if (this.data.hotkey === 'Alt+Q') {
         this.data.hotkey = defaults.hotkey
         changed = true
       }
       // 明文保存的 Key（旧版或手工写入）改为加密
       for (const [id, c] of Object.entries(this.data.providers)) {
-        if (process.platform !== 'darwin' && c?.key && c.key !== encryptSecret(c.key)) {
+        if (c?.key && c.key !== encryptSecret(c.key)) {
           this.data.providers[id as ProviderId] = { ...c, key: encryptSecret(c.key) }
           changed = true
         }
@@ -88,15 +86,12 @@ class SettingsStore {
   private write() {
     const json = JSON.stringify(this.data, null, 2)
     const tmp = `${this.file}.tmp`
-    if (process.platform === 'darwin' && existsSync(tmp)) chmodSync(tmp, 0o600)
-    writeFileSync(tmp, json, { flush: true, ...(process.platform === 'darwin' ? { mode: 0o600 } : {}) })
-    if (process.platform === 'darwin') chmodSync(tmp, 0o600)
+    writeFileSync(tmp, json, { flush: true })
     try {
       renameSync(tmp, this.file)
     } catch {
       // 杀毒软件等临时占用文件时改名会失败：退回直接覆盖
-      writeFileSync(this.file, json, process.platform === 'darwin' ? { mode: 0o600 } : {})
-      if (process.platform === 'darwin') chmodSync(this.file, 0o600)
+      writeFileSync(this.file, json)
       rmSync(tmp, { force: true })
     }
   }

@@ -75,8 +75,6 @@ const api = {
   onSettings: (cb: (s: Settings) => void) => on('settings:changed', cb),
   openSettings: () => ipcRenderer.send('settings:open'),
   engineStatus: (): Promise<EngineStatus> => ipcRenderer.invoke('engine:status'),
-  macSettingsStatus: (): Promise<{ screen: boolean; input: boolean; launchAtLogin: boolean } | null> => ipcRenderer.invoke('mac:settings-status'),
-  openMacSettings: (pane: 'screen' | 'input' | 'login' | 'keyboard'): Promise<void> => ipcRenderer.invoke('mac:open-settings', pane),
   testEngine: (): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('engine:test'),
   openExternal: (url: string) => ipcRenderer.send('shell:open', url),
 

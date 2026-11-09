@@ -18,12 +18,10 @@ app.whenReady().then(async () => {
     await new Promise((resolve) => setTimeout(resolve, 700))
     writeFileSync(join(output, 'regression.png'), (await win.webContents.capturePage()).toPNG())
     console.log('Regression image: ' + join(output, 'regression.png'))
-    for (const platform of ['Win32', 'MacIntel']) {
-      await win.loadFile(join(output, 'settings.html'))
-      const hotkey = await win.webContents.executeJavaScript(`window.checkSettingsHotkey(${JSON.stringify(platform)}).then(passed => ({ passed }), error => ({ error: error.stack || String(error) }))`)
-      if (hotkey.error) throw new Error(hotkey.error)
-      result.passed.push(hotkey.passed)
-    }
+    await win.loadFile(join(output, 'settings.html'))
+    const hotkey = await win.webContents.executeJavaScript(`window.checkSettingsHotkey().then(passed => ({ passed }), error => ({ error: error.stack || String(error) }))`)
+    if (hotkey.error) throw new Error(hotkey.error)
+    result.passed.push(hotkey.passed)
     console.log(JSON.stringify(result, null, 2))
     writeFileSync(join(output, 'result.json'), JSON.stringify(result, null, 2))
     app.exit(0)

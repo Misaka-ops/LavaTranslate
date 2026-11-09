@@ -27,20 +27,6 @@ function harness(platform) {
   return { ocr: new module.exports.PaddleOcr('models'), calls }
 }
 
-test('CPU startup skips synthetic inference and Retina detection stays bounded', async () => {
-  const { ocr, calls } = harness('darwin')
-  await ocr.init()
-  assert.equal(calls.det.length, 0)
-  assert.equal(calls.rec.length, 0)
-  assert(calls.create.every((c) => c.executionProviders[0] === 'cpu'))
-  const width = 3024, height = 1964
-  await ocr.recognize({ data: new Uint8Array(width * height * 4).fill(255), width, height })
-  const [, , h, w] = calls.det[0]
-  assert(w <= 1600 && h <= 1600)
-  assert(w * h < 1_650_000, 'padding must not exceed the CPU pixel budget materially')
-  assert.equal(calls.det.length, 1, 'one screenshot should run detection once')
-})
-
 test('Windows GPU path retains high resolution and GPU warm-up', async () => {
   const { ocr, calls } = harness('win32')
   await ocr.init()

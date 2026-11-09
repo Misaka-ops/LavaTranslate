@@ -1,5 +1,4 @@
-// 模型翻译：所有服务（含 Claude、ChatGPT 会员）都走 OpenAI 兼容接口（Responses 或 Chat Completions），
-// 共用同一套提示词与 JSONL 流式解析；网络由宿主注入（platform.ts），截图界面一打开就预连接。桌面与安卓共用
+// 模型翻译：DeepSeek 走 OpenAI 兼容接口，共用提示词与 JSONL 流式解析；网络由宿主注入（platform.ts），截图界面一打开就预连接
 import OpenAI from 'openai'
 import type { ErrorCode, Language, OcrLine, TranslatedBlock, TranslateEvent } from '../shared/types'
 import { pfetch, preconnect } from './platform'
@@ -27,7 +26,7 @@ export class TranslateError extends Error {
   constructor(
     message: string,
     public code: ErrorCode,
-    /** 界面文字的词条（桌面版按界面语言显示；安卓版直接用 message） */
+    /** 界面文字的词条（按界面语言显示） */
     public msg?: { id: string; vars?: Record<string, string | number> }
   ) {
     super(message)
@@ -249,8 +248,6 @@ export class OpenAIEngine implements Engine {
       maxRetries: opts.maxRetries ?? 1,
       timeout: opts.timeout ?? 60_000,
       fetch: pfetch,
-      // 安卓版在 WebView 里运行；Key 是用户自己的，只发给 DeepSeek
-      dangerouslyAllowBrowser: true
     })
   }
 

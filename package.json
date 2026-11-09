@@ -9,20 +9,15 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "build:mobile": "vite build --config vite.mobile.config.ts",
     "start": "electron-vite preview",
     "dist": "electron-vite build && electron-builder --win --x64 --publish never",
-    "dist:mac": "node scripts/build-mac.mjs arm64",
-    "pack:mac": "node scripts/build-mac.mjs arm64 --dir",
-    "check:mac": "electron scripts/check-mac.cjs",
-    "check:platform": "node --test scripts/platform.test.mjs scripts/mac-regression.test.mjs scripts/ocr-regression.test.mjs scripts/win-input.test.mjs",
+    "check:platform": "node --test scripts/platform.test.mjs scripts/ocr-regression.test.mjs scripts/win-input.test.mjs",
     "check:win-compat": "node --test scripts/windows-compat.test.mjs",
     "check:win-package": "node scripts/check-win-package.cjs",
     "runtime:win": "node scripts/windows-runtime.cjs",
     "check:win-hotkey": "electron scripts/check-win-hotkey.cjs",
     "check:layout": "node scripts/check-layout.mjs",
     "check:pin": "node scripts/check-pin.cjs",
-    "export:mac": "node scripts/export-mac.mjs",
     "models": "node scripts/fetch-models.mjs",
     "release": "node scripts/release.mjs"
   },
@@ -61,7 +56,6 @@
     },
     "files": [
       "out/**",
-      "!out/mobile/**",
       "package.json",
       "!**/node_modules/onnxruntime-node/bin/napi-v*/linux/**",
       "!**/*.{md,map,ts}",
@@ -91,7 +85,6 @@
     "win": {
       "files": [
         "package.json",
-        "!**/node_modules/onnxruntime-node/bin/napi-v*/darwin/**",
         "!**/node_modules/onnxruntime-node/bin/napi-v*/win32/arm64/**"
       ],
       "target": [
@@ -104,22 +97,6 @@
       ],
       "icon": "build/icon.ico",
       "requestedExecutionLevel": "asInvoker"
-    },
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "category": "public.app-category.productivity",
-      "icon": "build/icon-1024.png",
-      "artifactName": "LavaTranslate-Mac-${version}-${arch}.${ext}",
-      "files": [
-        "package.json",
-        "!**/node_modules/onnxruntime-node/bin/napi-v*/win32/**"
-      ],
-      "extendInfo": {
-        "NSScreenCaptureUsageDescription": "LavaTranslate captures the screen area you select to recognize and translate text."
-      }
     },
     "nsis": {
       "oneClick": false,

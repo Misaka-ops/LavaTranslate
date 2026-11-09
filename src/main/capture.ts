@@ -1,4 +1,4 @@
-// 屏幕截图（node-screenshots：Windows DXGI/GDI、macOS CoreGraphics）与窗口区域枚举
+// 屏幕截图（node-screenshots：Windows DXGI/GDI）与窗口区域枚举
 import { screen, type Display } from 'electron'
 import { Monitor, Window } from 'node-screenshots'
 import type { Rect } from '../shared/types'
@@ -22,26 +22,19 @@ interface MonitorInfo {
   h: number
 }
 
-/** 将截图显示器与 Electron 显示器对应：Windows 物理像素，macOS 点坐标 / CGDisplayID。 */
+/** 将截图显示器与 Electron 显示器对应（物理像素） */
 function matchMonitors(displays: Display[]): Map<number, MonitorInfo> {
   const monitors: MonitorInfo[] = Monitor.all().map((m) => ({ m, x: m.x(), y: m.y(), w: m.width(), h: m.height() }))
   const result = new Map<number, MonitorInfo>()
   const used = new Set<MonitorInfo>()
   for (const d of displays) {
-    const mac = process.platform === 'darwin'
-    const pw = Math.round(d.bounds.width * (mac ? 1 : d.scaleFactor))
-    const ph = Math.round(d.bounds.height * (mac ? 1 : d.scaleFactor))
-    // dipToScreenRect 只在 Windows 提供；Mac 上两边都使用 CoreGraphics 点坐标。
-    const phys = process.platform === 'win32' ? screen.dipToScreenRect(null, d.bounds) : d.bounds
+    const pw = Math.round(d.bounds.width * d.scaleFactor)
+    const ph = Math.round(d.bounds.height * d.scaleFactor)
+    const phys = screen.dipToScreenRect(null, d.bounds)
     let best: MonitorInfo | null = null
     let bestScore = Infinity
     for (const mi of monitors) {
       if (used.has(mi)) continue
-      // macOS 的 Electron display.id 与 CGDirectDisplayID 相同，优先按 ID 匹配。
-      if (mac && mi.m.id() === d.id) {
-        best = mi
-        break
-      }
       const sizeDiff = Math.abs(mi.w - pw) + Math.abs(mi.h - ph)
       const posDiff = Math.abs(mi.x - phys.x) + Math.abs(mi.y - phys.y)
       const score = sizeDiff * 10 + posDiff
@@ -67,8 +60,6 @@ export async function captureAll(exclude: Set<number> = new Set()): Promise<Disp
   try {
     wins = Window.all()
       .filter((w) => !w.isMinimized() && w.width() > 40 && w.height() > 24 && !exclude.has(w.id()))
-      // Mac 的 nativeWindowHandle 是 NSView 指针，不能当作 CGWindowID。
-      .filter((w) => process.platform !== 'darwin' || w.pid() !== process.pid)
       .sort((a, b) => b.z() - a.z())
       .map((w) => ({ x: w.x(), y: w.y(), w: w.width(), h: w.height() }))
   } catch {

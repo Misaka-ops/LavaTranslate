@@ -55,10 +55,10 @@ app.whenReady().then(async () => {
       return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }
     }
   } })
-  const pins = new Function('BrowserWindow', 'ipcMain', 'screen', 'preload', 'loadPage', 'overlayOf', 'configureMacOverlay', 'hideOverlays', 'appIcon', 'isMac', code)(
+  const pins = new Function('BrowserWindow', 'ipcMain', 'screen', 'preload', 'loadPage', 'overlayOf', 'hideOverlays', 'appIcon', code)(
     HiddenWindow, ipcMain, testScreen, preload,
     (win, page) => win.loadFile(join(root, `out/renderer/${page}.html`)),
-    () => null, () => {}, () => {}, undefined, false
+    () => null, () => {}, undefined
   )
   const overlay = new HiddenWindow({ show: false, width: 900, height: 650, webPreferences: { preload, sandbox: false } })
   let requestId = 0

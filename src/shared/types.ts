@@ -76,7 +76,7 @@ export const LANGUAGES: Language[] = [
 /** DeepSeek 配置：Key 落盘加密，界面上为打码形式（•••• 末四位） */
 export interface ProviderConfig {
   key: string
-  /** 兼容旧设置与安卓端；地址固定为 DeepSeek 官方接口 */
+  /** 兼容旧设置；地址固定为 DeepSeek 官方接口 */
   baseUrl?: string
   model: string
 }
@@ -146,18 +146,16 @@ export interface ReplyStartMsg {
 
 export type ReplyEvent = { type: 'delta'; text: string } | { type: 'done'; ms: number } | { type: 'error'; message: string }
 
-export type UpdateState = { manualInstall?: boolean } & (
+export type UpdateState =
   | { state: 'idle' | 'checking' | 'latest' | 'disabled'; version: string; message?: string }
   | { state: 'available' | 'downloading'; version: string; next: string; percent: number }
   | { state: 'ready'; version: string; next: string }
   | { state: 'error'; version: string; message: string }
-)
 
 export interface EngineStatus {
   provider: ProviderId
   ok: boolean
   detail: string
-  locked?: boolean
 }
 
 /** 截图帧：主进程 → 遮罩窗口 */

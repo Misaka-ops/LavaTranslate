@@ -21,7 +21,7 @@ import { LANGUAGES, type ErrorCode, type Phase } from '@shared/types'
 import { Tip } from '../components/Tip'
 import { ShortcutHelp } from './ShortcutHelp'
 import { useI18n } from '../lib/i18n'
-import { isMac, shortcutLabel } from '../lib/desktop'
+import { shortcutLabel } from '../lib/desktop'
 
 export interface ToolbarProps {
   phase: Phase
@@ -154,7 +154,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
           <ImageDown size={17} />
         </button>
       </Tip>
-      <Tip label={p.paused ? t('tb.pinOriginal') : t('tb.pin')} keys={isMac ? '⌘ T' : 'F3'}>
+      <Tip label={p.paused ? t('tb.pinOriginal') : t('tb.pin')} keys="F3">
         <button className="tb-btn" disabled={!p.progress.done && !p.paused} onClick={(e) => p.onPin(e.altKey)}>
           <Pin size={16} />
         </button>

@@ -44,14 +44,11 @@ import { PaddleOcr } from './ocr'
 import { matchesTargetLanguage } from './ocr-language'
 import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateState } from './updater'
 import { settings } from './settings'
-import { secretLocked } from './secrets'
 import { errorText, t, uiLang } from './i18n'
 import { langBase, UI_LANGS } from '../shared/i18n'
 import { focusWindowAt, forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
-import { configureMacOverlay, ensureKeyMonitoring, ensureScreenCapture, isMac, macSpaceDown, macSettingsStatus, openMacSettings } from './macos'
 import { acceleratorLabel } from '../shared/hotkeys'
 import { PIN_COMPACT_SIZE, PIN_MARGIN } from '../shared/pin'
-import { macUpdateText } from '../shared/mac-update'
 import { WinSpaceHotkey } from './win-space'
 import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
 import { FixtureEngine, MockEngine, runAutotest, runEngineTest, runI18nShots, runPassTest, runReview } from './devtest'
@@ -68,7 +65,7 @@ const isDev = !app.isPackaged
 const resources = isDev ? join(__dirname, '../../resources') : process.resourcesPath
 const preload = join(__dirname, '../preload/index.js')
 /** 窗口图标：.ico 含 16~256 多种尺寸，任务栏、Alt+Tab 都清晰 */
-const appIcon = join(resources, process.platform === 'win32' ? 'icon.ico' : 'icon.png')
+const appIcon = join(resources, 'icon.ico')
 const AUTOTEST = !!process.env.LENS_AUTOTEST || !!process.env.LENS_REVIEW
 const fixtureEngine = process.env.LENS_REVIEW ? new FixtureEngine() : null
 const mockEngine = fixtureEngine ?? (process.env.LENS_MOCK || process.env.LENS_PASSTEST ? new MockEngine() : null)
@@ -106,17 +103,12 @@ function loadPage(win: BrowserWindow, page: 'overlay' | 'settings' | 'pin') {
     if (page === 'overlay') void hideOverlays(true)
     if (page === 'settings') void registerHotkey(settings.get().hotkey)
   })
-  if (isMac) {
-    if (process.env.LENS_DIAGNOSTIC) {
-      win.webContents.on('did-finish-load', () => console.log('[page loaded]', page))
-      win.webContents.on('console-message', (event) => console.log('[renderer]', page, event.message))
-    }
+  if (process.env.LENS_DIAGNOSTIC) {
+    win.webContents.on('did-finish-load', () => console.log('[page loaded]', page))
+    win.webContents.on('console-message', (event) => diag('renderer', page, event.message))
   }
   if (isDev && process.env.ELECTRON_RENDERER_URL) win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/${page}.html`)
   else win.loadFile(join(__dirname, `../renderer/${page}.html`))
-  if (process.env.LENS_DIAGNOSTIC) {
-    win.webContents.on('console-message', (event) => diag('renderer', page, event.message))
-  }
 }
 
 // ------------------------------------------------------------------ 引擎
@@ -136,16 +128,6 @@ function engineFor(s: Settings): Engine | null {
 
 function engineStatus(): EngineStatus {
   const s = settings.get()
-  if (secretLocked(s.providers.deepseek?.key ?? '')) {
-    return {
-      provider: 'deepseek',
-      ok: false,
-      locked: true,
-      detail: uiLang().startsWith('zh')
-        ? '旧版 Key 已加密，请重新填写一次 API Key。'
-        : 'Your old key is encrypted. Enter your API key again.'
-    }
-  }
   const r = resolveProvider(s)
   if (!r) return { provider: 'deepseek', ok: false, detail: t('status.noKey') }
   return { provider: 'deepseek', ok: true, detail: `${r.model} · DeepSeek` }
@@ -172,7 +154,6 @@ function createOverlay(display: Display): Overlay {
     height,
     show: false,
     frame: false,
-    ...(isMac ? { type: 'panel' as const } : {}),
     transparent: true,
     backgroundColor: '#00000000',
     resizable: false,
@@ -190,11 +171,6 @@ function createOverlay(display: Display): Overlay {
     webPreferences: { preload, sandbox: false, backgroundThrottling: false, spellcheck: false, offscreen: AUTOTEST }
   })
   win.setAlwaysOnTop(true, 'screen-saver')
-  configureMacOverlay(win)
-  if (isMac) win.webContents.on('before-input-event', (_event, input) => {
-    // 这些组合键交给截图界面处理；其余仍由 macOS 的标准应用菜单处理。
-    win.webContents.setIgnoreMenuShortcuts(input.meta && ['c', 's', 'r', 't'].includes(input.key.toLowerCase()))
-  })
   win.setMenu(null)
   win.on('close', (e) => {
     if (!quitting) {
@@ -278,7 +254,6 @@ function diag(...args: unknown[]) {
 async function startCapture() {
   diag('startCapture', { overlayActive, hiding: !!hiding })
   tHotkey = Date.now()
-  refocus = false
   if (overlayActive) {
     hideOverlays()
     return
@@ -294,14 +269,6 @@ async function startCapture() {
   }
   if (releaseTimer) clearTimeout(releaseTimer)
   try {
-    const allowed = await ensureScreenCapture()
-    if (generation !== captureGeneration || !overlayActive) return
-    if (!allowed) {
-      void winSpace.setCaptureSpace(false)
-      overlayActive = false
-      quickPending = false
-      return
-    }
     syncOverlays()
     const caps = await captureAll()
     if (generation !== captureGeneration || !overlayActive) return
@@ -372,9 +339,7 @@ ipcMain.on('overlay:frame-ready', (e) => {
   const activeDisplay = (captures.has(cursorDisplay) ? cursorDisplay : captures.keys().next().value) === o.displayId
   if (activeDisplay) {
     o.win.show()
-    if (process.platform === 'win32') forceForeground(hwndOf(o.win.getNativeWindowHandle()))
-    else if (isMac && refocus) app.focus({ steal: true })
-    refocus = false
+    forceForeground(hwndOf(o.win.getNativeWindowHandle()))
     o.win.focus()
     o.win.webContents.focus()
   } else {
@@ -427,9 +392,7 @@ function hideOverlays(immediate = false) {
   editingOverlays.clear()
   overlayHeartbeats.clear()
   if (passthrough?.timer) clearTimeout(passthrough.timer)
-  if (passthrough) releasePassKey(passthrough)
   passthrough = null
-  refocus = false
   hiding = doHide(immediate).finally(() => (hiding = null))
   return hiding
 }
@@ -456,14 +419,10 @@ ipcMain.on('overlay:close', () => hideOverlays())
 // ------------------------------------------------------------------ 按住空格：遮罩暂时让开
 // 只显示选区边框、鼠标穿透。松开空格时，先隐藏边框再重新截图。
 // Windows 上键盘钩子跨焦点监听空格，滚动期间把焦点还给鼠标下方的应用。
-const PASS_KEY = 'Space'
-let passthrough: { timer: NodeJS.Timeout | null; grabbed: boolean } | null = null
-/** 穿透期间用户可能点进了别的软件，回来时要把焦点抢回来 */
-let refocus = false
+let passthrough: { timer: NodeJS.Timeout | null } | null = null
 
-const spaceDown = () => isMac ? macSpaceDown() : winSpace.scrollHeld || keyDown(VK_SPACE)
-const plainSpaceHeld = () => spaceDown() === true &&
-  (process.platform !== 'win32' || ![0x10, 0x11, 0x12, 0x5b, 0x5c].some((vk) => keyDown(vk)))
+const spaceDown = () => winSpace.scrollHeld || keyDown(VK_SPACE)
+const plainSpaceHeld = () => spaceDown() === true && ![0x10, 0x11, 0x12, 0x5b, 0x5c].some((vk) => keyDown(vk))
 const editingOverlays = new Set<number>()
 const overlayHeartbeats = new Map<number, number>()
 let captureLeaseEnabled: boolean | null = null
@@ -501,16 +460,10 @@ ipcMain.on('overlay:passthrough', async (e, rect: Rect) => {
   const owner = overlayOf(e.sender)
   diag('passthrough request', { owner: owner?.displayId, rect, space: plainSpaceHeld(), overlayActive, framesShown, passthrough: !!passthrough })
   if (!owner || !overlayActive || !framesShown || passthrough || hiding) return
-  if (isMac && overlayActive && macSpaceDown() === null) {
-    // 系统权限提示不能被 screen-saver 级别的截图窗口遮挡。
-    await hideOverlays(true)
-    await ensureKeyMonitoring()
-    return
-  }
   // 只认此刻还按着的空格；读不到按键状态（没有 koffi）就不支持
   if (!plainSpaceHeld()) return
   const shown = [...overlays.values()].filter((o) => o.win.isVisible())
-  const p = { timer: null as NodeJS.Timeout | null, grabbed: grabPassKey() }
+  const p = { timer: null as NodeJS.Timeout | null }
   passthrough = p
   for (const o of shown) {
     o.win.webContents.send('overlay:passing', o === owner ? rect : null)
@@ -524,29 +477,11 @@ ipcMain.on('overlay:passthrough', async (e, rect: Rect) => {
     if (passthrough !== p) return
     if (spaceDown()) p.timer = setTimeout(poll, 16)
     else {
-      releasePassKey(p)
       void endPassthrough(p)
     }
   }
   p.timer = setTimeout(poll, 16)
 })
-
-function grabPassKey(): boolean {
-  // Windows uses the independently expiring hook, never a main-thread Space hotkey.
-  if (process.platform === 'win32') return false
-  try {
-    return !globalShortcut.isRegistered(PASS_KEY) && globalShortcut.register(PASS_KEY, () => {})
-  } catch (e) {
-    logError('passthrough key', e)
-    return false
-  }
-}
-
-function releasePassKey(p: { grabbed: boolean }) {
-  if (!p.grabbed) return
-  p.grabbed = false
-  globalShortcut.unregister(PASS_KEY)
-}
 
 async function endPassthrough(p: NonNullable<typeof passthrough>) {
   // Let the desktop compositor remove the outline before sampling the live screen.
@@ -558,7 +493,6 @@ async function endPassthrough(p: NonNullable<typeof passthrough>) {
     const caps = await captureAll(new Set(excluded))
     if (passthrough !== p) return
     passthrough = null
-    refocus = true
     presentCaptures(caps, true)
   } catch (e) {
     if (passthrough !== p) return
@@ -866,10 +800,6 @@ ipcMain.on('pin:create', (e, payload: PinPayload) => {
     webPreferences: { preload, sandbox: false, spellcheck: false }
   })
   win.setAlwaysOnTop(true, 'floating')
-  configureMacOverlay(win)
-  if (isMac) win.webContents.on('before-input-event', (_event, input) => {
-    win.webContents.setIgnoreMenuShortcuts(input.meta && input.key.toLowerCase() === 'c')
-  })
   // 窗口销毁后不能再访问 webContents，先记下 id
   const id = win.webContents.id
   const pin: PinWin = { win, payload, displayId: display.id, slot: slot.slot, home: { x: slot.x, y: slot.y }, fly: null, top: false, expandedSize: null }
@@ -980,10 +910,9 @@ function openSettings() {
     minHeight: 540,
     show: false,
     title: 'LavaTranslate',
-    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-    ...(isMac
-      ? { trafficLightPosition: { x: 14, y: 16 }, vibrancy: 'under-window' as const, visualEffectState: 'active' as const }
-      : { titleBarOverlay: { color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e8ee' : '#3a3a44', height: 48 }, backgroundMaterial: 'mica' as const }),
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e8ee' : '#3a3a44', height: 48 },
+    backgroundMaterial: 'mica',
     backgroundColor: '#00000000',
     icon: appIcon,
     webPreferences: { preload, sandbox: false, spellcheck: false }
@@ -998,7 +927,7 @@ function openSettings() {
 }
 
 nativeTheme.on('updated', () => {
-  if (!isMac) settingsWin?.setTitleBarOverlay({ color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e8ee' : '#3a3a44', height: 48 })
+  settingsWin?.setTitleBarOverlay({ color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e8ee' : '#3a3a44', height: 48 })
 })
 
 ipcMain.handle('settings:get', () => settings.public())
@@ -1009,7 +938,6 @@ function broadcastUiLang() {
   const lang = uiLang()
   if (lang === sentLang) return
   sentLang = lang
-  updateMacMenu()
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('ui:lang', lang)
   // 更新状态里的提示语也换成新语言
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('update:state', updateState())
@@ -1019,8 +947,6 @@ ipcMain.handle('settings:set', (_e, patch: SettingsPatch) => {
   return settings.public()
 })
 ipcMain.handle('engine:status', () => engineStatus())
-ipcMain.handle('mac:settings-status', () => macSettingsStatus())
-ipcMain.handle('mac:open-settings', (_event, pane: string) => openMacSettings(pane))
 /** 打开 DeepSeek 的网页（获取 Key、文档）；只允许 https */
 ipcMain.on('shell:open', (_e, url: string) => {
   if (/^https:[/][/]/.test(url)) void shell.openExternal(url)
@@ -1030,7 +956,7 @@ ipcMain.handle('app:info', () => ({ version: app.getVersion() }))
 ipcMain.handle('update:state', () => updateState())
 ipcMain.handle('update:check', () => checkUpdate())
 ipcMain.on('update:install', () => {
-  if (!updateState().manualInstall) quitting = true
+  quitting = true
   installNow()
 })
 ipcMain.handle('ocr:info', async () => {
@@ -1075,7 +1001,7 @@ ipcMain.handle('engine:test', async () => {
 // ------------------------------------------------------------------ 快捷键 / 托盘
 let registeredHotkey = ''
 const winSpace = new WinSpaceHotkey()
-const hotkeyLabel = (value: string) => acceleratorLabel(value, process.platform, uiLang())
+const hotkeyLabel = (value: string) => acceleratorLabel(value, uiLang())
 async function registerHotkey(hotkey: string): Promise<boolean> {
   if (registeredHotkey) globalShortcut.unregister(registeredHotkey)
   registeredHotkey = ''
@@ -1122,7 +1048,7 @@ function trayMenu(): Electron.MenuItemConstructorOptions[] {
   const u = updateState()
   const upd: Electron.MenuItemConstructorOptions =
     u.state === 'ready'
-      ? { label: u.manualInstall ? `${macUpdateText(uiLang(), 'open')} (v${u.next})` : t('tray.updateReady', { v: u.next }), click: () => { if (!u.manualInstall) quitting = true; installNow() } }
+      ? { label: t('tray.updateReady', { v: u.next }), click: () => { quitting = true; installNow() } }
       : u.state === 'downloading' || u.state === 'available'
         ? { label: t('tray.updateDownloading', { v: u.next, p: u.percent }), enabled: false }
         : {
@@ -1148,9 +1074,7 @@ function trayMenu(): Electron.MenuItemConstructorOptions[] {
         ...UI_LANGS.map((l): Electron.MenuItemConstructorOptions => ({ label: l.native, type: 'radio', checked: s.uiLang === l.code, click: pick(l.code) }))
       ]
     },
-    isMac && u.state === 'disabled'
-      ? { label: uiLang().startsWith('zh') ? '查看版本发布…' : 'View releases…', click: () => { void shell.openExternal('https://github.com/chengcczzjj/LavaTranslate/releases') } }
-      : upd,
+    upd,
     { type: 'separator' },
     { label: t('tray.quit'), click: () => app.quit() }
   ]
@@ -1173,25 +1097,6 @@ function systemTarget() {
 }
 
 app.on('second-instance', () => openSettings())
-app.on('activate', () => {
-  if (app.isReady() && !overlayActive) openSettings()
-})
-
-function updateMacMenu() {
-  if (!isMac) return
-  // macOS 的标准 Edit 菜单为设置页、回复输入框提供 Command+C/V/A/Z。
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'LavaTranslate', submenu: [
-      { role: 'about' },
-      { label: t('tray.settings'), accelerator: 'Command+,', click: openSettings },
-      { type: 'separator' },
-      { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
-      { type: 'separator' }, { role: 'quit' }
-    ] },
-    { role: 'editMenu' },
-    { role: 'windowMenu' }
-  ]))
-}
 
 /**
  * 旧名称「Lens 截图翻译」的配置搬到新目录。
@@ -1206,8 +1111,6 @@ function migrateLegacy() {
   try {
     const old = JSON.parse(readFileSync(legacy, 'utf8')) as Record<string, unknown>
     for (const k of ['apiKey', 'openaiKey']) if (String(old[k] ?? '').startsWith('enc:')) old[k] = ''
-    // 「Claude 账号」登录已移除（Anthropic 不允许第三方软件使用订阅登录）
-    if (old.engine === 'claude-code') delete old.engine
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'settings.json'), JSON.stringify(old, null, 2))
   } catch (e) {
@@ -1219,8 +1122,6 @@ export const startup = app.whenReady().then(async () => {
   migrateLegacy()
   const s = settings.load()
   sentLang = uiLang()
-  updateMacMenu()
-  if (isMac) app.dock?.setIcon(nativeImage.createFromPath(appIcon))
   buildEngine(s)
   // OCR loads on the first capture/settings request, not during Windows sign-in.
   syncOverlays()
@@ -1229,12 +1130,11 @@ export const startup = app.whenReady().then(async () => {
   screen.on('display-metrics-changed', syncOverlays)
 
   const trayImage = nativeImage.createFromPath(join(resources, 'tray.png'))
-  tray = new Tray(isMac ? trayImage.resize({ width: 18, height: 18 }) : trayImage)
+  tray = new Tray(trayImage)
   // 单击截图、双击打开设置：单击要等过双击间隔才动作，否则双击会先触发一次截图
   let clickTimer: NodeJS.Timeout | null = null
   let lastDouble = 0
   tray.on('click', () => {
-    if (isMac) return // macOS 左键直接打开菜单，由菜单项启动截图。
     if (Date.now() - lastDouble < 600) return
     if (clickTimer) clearTimeout(clickTimer)
     clickTimer = setTimeout(() => {
@@ -1243,7 +1143,6 @@ export const startup = app.whenReady().then(async () => {
     }, 280)
   })
   tray.on('double-click', () => {
-    if (isMac) return
     lastDouble = Date.now()
     if (clickTimer) clearTimeout(clickTimer)
     clickTimer = null
@@ -1258,7 +1157,7 @@ export const startup = app.whenReady().then(async () => {
       if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('update:state', st)
       updateTray()
       if (st.state === 'ready') {
-        notify(t('notify.updateReadyTitle'), st.manualInstall ? macUpdateText(uiLang(), 'install') : t('notify.updateReadyBody', { v: st.next }))
+        notify(t('notify.updateReadyTitle'), t('notify.updateReadyBody', { v: st.next }))
       }
     }
   })

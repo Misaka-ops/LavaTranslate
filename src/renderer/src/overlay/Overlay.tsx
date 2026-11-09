@@ -19,7 +19,7 @@ import { sampleColors } from '../lib/colors'
 import { langBase, ReplyComposer } from './ReplyComposer'
 import { Toolbar } from './Toolbar'
 import { currentI18n, useI18n } from '../lib/i18n'
-import { isMac, primaryModifier } from '../lib/desktop'
+import { primaryModifier } from '../lib/desktop'
 import { acceleratorLabel } from '@shared/hotkeys'
 
 /** quick：连按两次快捷键，不框选，直接输入一句话翻译 */
@@ -83,7 +83,7 @@ export function Overlay() {
   const [tipKey, setTipKey] = useState<string | null>(null)
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null)
   const [capturing, setCapturing] = useState(false)
-  const [hotkey, setHotkey] = useState(isMac ? 'Alt+Space' : DEFAULT_SETTINGS.hotkey)
+  const [hotkey, setHotkey] = useState(DEFAULT_SETTINGS.hotkey)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const [tbSize, setTbSize] = useState({ w: 520, h: 46 })
 
@@ -678,8 +678,8 @@ export function Overlay() {
       if (stage === 'hidden') return
       const el = e.target as HTMLElement
       if (el instanceof HTMLInputElement && (el.type !== 'checkbox' || e.key === ' ' || e.key === 'Tab')) return
-      // Option+C 在 Mac 上会产生 ç；组合键按物理字母键识别。
-      const k = isMac && e.altKey && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key.toLowerCase()
+      // 组合键按物理字母键识别。
+      const k = e.key.toLowerCase()
       // 回复框只会把「空白时的空格/Enter/Tab」和 Ctrl 组合键冒泡上来
       const inReply = el.tagName === 'TEXTAREA'
       if (inReply && primaryModifier(e) && k === 'c') {
@@ -727,7 +727,7 @@ export function Overlay() {
   // Windows captures plain Space at the keyboard hook while selecting. Release it
   // for editable fields and quick translation so typing keeps its usual behavior.
   useEffect(() => {
-    if (isMac || stage === 'hidden') return
+    if (stage === 'hidden') return
     const sync = (el: Element | null) => window.lens.setSpaceEditing(stage === 'quick' || (document.hasFocus() && isTypingSpace(el)))
     const active = () => sync(document.activeElement)
     const leave = (e: FocusEvent) => sync(e.relatedTarget as Element | null)
@@ -1193,7 +1193,7 @@ export function Overlay() {
             <span className="hint-dot" />
             <span>{i.rich('ov.hintPass', { k: <kbd>Space</kbd> })}</span>
             <span className="hint-dot hint-quick" />
-            <span className="hint-quick">{i.rich('ov.hintQuick', { k: <kbd>{acceleratorLabel(hotkey, isMac ? 'darwin' : 'win32', i.lang)}</kbd> })}</span>
+            <span className="hint-quick">{i.rich('ov.hintQuick', { k: <kbd>{acceleratorLabel(hotkey, i.lang)}</kbd> })}</span>
             <span className="hint-dot" />
             <span>{i.rich('ov.hintExit', { k: <kbd>Esc</kbd> })}</span>
           </motion.div>
@@ -1217,7 +1217,7 @@ export function Overlay() {
           </motion.div>
         )}
       </AnimatePresence>
-      <span className="sr-only">{acceleratorLabel(hotkey, isMac ? 'darwin' : 'win32', i.lang)}</span>
+      <span className="sr-only">{acceleratorLabel(hotkey, i.lang)}</span>
     </div>
   )
 }

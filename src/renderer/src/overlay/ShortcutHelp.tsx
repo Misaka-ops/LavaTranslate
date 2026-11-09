@@ -1,7 +1,7 @@
 import { CircleHelp } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
-import { isMac, shortcutLabel } from '../lib/desktop'
+import { shortcutLabel } from '../lib/desktop'
 import { useI18n } from '../lib/i18n'
 
 /** 悬停打开快捷操作；浮层贴合可用屏幕空间，鼠标移入后可以滚动。 */
@@ -54,8 +54,8 @@ export function ShortcutHelp() {
     [shortcutLabel('Alt C'), t('tb.copySource')],
     [shortcutLabel('Ctrl Shift C'), t('sc.copyImage')],
     [shortcutLabel('Ctrl S'), t('tb.save')],
-    [isMac ? '⌘ T' : 'F3', t('tb.pin')],
-    [isMac ? '⌥ ⌘ T' : 'Alt F3', t('tb.pinOriginal')],
+    ['F3', t('tb.pin')],
+    ['Alt F3', t('tb.pinOriginal')],
     ['Enter', t('sc.enterDo')],
     [t('sc.clickText'), t('sc.clickTextDo')],
     [t('sc.dbl'), t('sc.dblDo')],

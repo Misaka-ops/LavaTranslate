@@ -58,7 +58,7 @@ export class PaddleOcr {
   init(): Promise<void> {
     if (!this.ready) {
       this.ready = (async () => {
-        // Windows 优先 DirectML（GPU）；macOS 用 ONNX Runtime CPU 后端。
+        // Windows 优先 DirectML（GPU），失败时回退 CPU
         const create = async (ep: 'dml' | 'cpu') => {
           const opts: ort.InferenceSession.SessionOptions = {
             graphOptimizationLevel: 'all',
@@ -71,15 +71,10 @@ export class PaddleOcr {
             ort.InferenceSession.create(join(this.modelDir, 'rec.onnx'), opts)
           ])
         }
-        if (process.platform === 'win32') {
-          try {
-            ;[this.det, this.rec] = await create('dml')
-            this.provider = 'dml'
-          } catch {
-            ;[this.det, this.rec] = await create('cpu')
-            this.provider = 'cpu'
-          }
-        } else {
+        try {
+          ;[this.det, this.rec] = await create('dml')
+          this.provider = 'dml'
+        } catch {
           ;[this.det, this.rec] = await create('cpu')
           this.provider = 'cpu'
         }
@@ -94,8 +89,7 @@ export class PaddleOcr {
           for (let y = (h / 2 - 6) | 0; y < h / 2 + 6; y++) for (let x = 20; x < w - 20; x += 3) d.fill(0, (y * w + x) * 4, (y * w + x) * 4 + 3)
           return this.run({ data: d, width: w, height: h })
         }
-        // CPU has no GPU shape compilation. Do not make the first capture wait
-        // for two synthetic detector + recognizer passes on a Retina Mac.
+        // CPU has no GPU shape compilation; only warm the GPU path.
         if (this.provider === 'dml') {
           await warm(640, 360)
           await warm(1280, 720)

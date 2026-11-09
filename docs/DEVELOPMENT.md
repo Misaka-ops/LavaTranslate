@@ -2,7 +2,7 @@
 
 > 面向用户的说明见仓库首页的 [README](../README.md) / [中文 README](../README.zh-CN.md)。
 
-> **本分支说明**：这是一个只保留 DeepSeek 的 Windows 精简分支。服务商目录只剩 DeepSeek，桌面设置合并为「翻译 / 通用 / 关于」3 页；ChatGPT 登录、Key 自动识别、本机凭据导入、模型价格列表和离线翻译意向投票已删除。下文保留的上游章节（多服务商、ChatGPT 登录、安卓细节、离线投票）仅作历史参考，相关代码已不在本分支中。
+> **本分支说明**：这是一个只保留 DeepSeek、只支持 Windows 的精简分支。服务商目录只剩 DeepSeek，桌面设置合并为「翻译 / 通用 / 关于」3 页；ChatGPT 登录、Key 自动识别、本机凭据导入、模型价格列表、离线翻译意向投票，以及安卓和 macOS 端代码都已删除。
 
 按下快捷键，框选屏幕上任意区域：本地 OCR 找出每一行文字的位置，大模型看着截图纠错、合并段落并翻译，译文按**原来的位置、字号、颜色、粗细、对齐方式**直接覆盖在原文上。
 
@@ -12,10 +12,10 @@
 
 | 操作 | 说明 |
 | --- | --- |
-| `Win + Space`（Windows，可改）/ `Option + Space`（Mac） | 进入截图模式 |
+| `Win + Space`（可改） | 进入截图模式 |
 | 拖动 / 单击 | 框选区域 / 选中鼠标下的窗口 |
 | 拖动选区、拖动手柄 | 移动、调整选区，松开后自动重新翻译 |
-| `Space`（按住） | 遮罩透明、鼠标穿透，可以操作下面的软件；松开后重新截图，选区里画面变了就重译同一块。Windows 由独立键盘线程跟踪空格，按住期间拦截重复事件；主进程与界面必须持续续期，异常时自动放行。Mac 保留原有全局按键状态读取 |
+| `Space`（按住） | 遮罩透明、鼠标穿透，可以操作下面的软件；松开后重新截图，选区里画面变了就重译同一块。由独立键盘线程跟踪空格，按住期间拦截重复事件；主进程与界面必须持续续期，异常时自动放行。 |
 | `Alt`（按住，有选区） | 显示原文、暂停翻译：请求照常进行，渲染进程把翻译事件攒着，松开后按顺序补上 |
 | `Tab` | 切换「原位覆盖 / 并排对照」 |
 | 单击某段译文 | 复制这一段 |
@@ -71,7 +71,7 @@ Windows 的 `Win + Space` 由独立线程上的低级键盘钩子处理（`win-s
 - 微软官方下载地址、版本和 EXE / DLL 的 SHA-256 固定在 `build/windows-runtime.json`。首次 Windows 打包自动下载并提取，既不运行运行库安装程序，也不读取本机 System32 的 DLL。缺失、损坏或架构不匹配会阻止打包。
 - 可提前运行 `npm run runtime:win`。离线机器可设置 `LAVA_VC_REDIST_EXE` 指向同一版本的微软安装包，再运行该命令；校验值必须一致。缓存位于 `build/windows-runtime/`，不提交 Git。升级原生依赖时应同时检查并更新运行库版本、校验值和回归验证；应用自带运行库通过新版应用更新。
 - `bootstrap.ts` 在加载原生模块之前注册日志，并捕获同步导入失败和异步启动失败。失败时弹窗显示原因和日志路径，再以非零状态退出。日志默认写到 `%APPDATA%\LavaTranslate\error.log`；目录不可写时回退到 `%TEMP%\LavaTranslate-error.log`。Windows 的页面加载、预加载和渲染进程错误也会记录。
-- `npm run check:win-compat` 验证缺 DLL、异步启动失败、日志回退和打包校验；`npm run check:platform` 验证已有跨平台行为。仍需在干净的 Windows 10 x64 机器上做安装、首次启动和截图 OCR 验证；开发机加载成功不能代替该验证。
+- `npm run check:win-compat` 验证缺 DLL、异步启动失败、日志回退和打包校验；`npm run check:platform` 验证 OCR、坐标和键盘输入的 Windows 回归。仍需在干净的 Windows 10 x64 机器上做安装、首次启动和截图 OCR 验证；开发机加载成功不能代替该验证。
 - 打包后运行 `npm run check:win-package -- dist/win-unpacked`：用产物自己的 Electron 加载三个原生模块，检查实际加载的 VC++ DLL 路径，并运行检测、识别模型的 CPU 推理。此检查可发现“开发机有运行库所以误以为安装包完整”的情况。
 - 数字签名独立配置；捆绑运行库不能消除 SmartScreen 的未知发布者提示。
 
@@ -79,10 +79,10 @@ Windows 的 `Win + Space` 由独立线程上的低级键盘钩子处理（`win-s
 
 ## 自动更新
 
-Mac 1.4.9 起启用检查与 ZIP 自动下载。默认 ad-hoc 构建的 `autoInstallOnAppQuit` 为 false，下载后用 Finder 手动替换；Developer ID 签名/公证入口可开启原生自动安装。Mac 使用 GenericProvider 读取 GitHub 最新发行版中的 `latest-mac.yml`，允许清单中的绝对下载地址指向原来的 Release。发布脚本在只发 Windows 时保留已有 Mac 清单，并固定这些地址，避免下次更新找不到安装包；Windows 继续使用 GitHubProvider。`node --test scripts/updater.test.mjs scripts/retain-platform-update.test.mjs` 验证更新状态以及实际更新库对跨平台清单的解析。
+Windows 安装版通过 GitHub Releases 检查更新，electron-updater 自动下载 NSIS 安装包并在退出时安装；设置中的「自动更新」可以关闭 20 秒启动检查和每 4 小时轮询。
 
 安装版每 4 小时检查一次 GitHub Releases（`chengcczzjj/LavaTranslate`），在后台按块差量下载，下载完成后托盘与设置里出现「重启并更新」，不点也会在下次退出时安装。
-发布新版本：`npm run release -- patch|minor|major|current`（需要 `gh auth login`），会升版本号、打包，并用 `gh release create` 上传安装包、blockmap 和 `latest.yml`，发布说明取 `docs/releases/v<版本>.md`。图标：`python scripts/make-icons.py` 一次生成桌面（exe、托盘、设置页）与安卓（自适应图标、单色图标、通知栏图标）的全部图标，图形定义在 `scripts/icons/lava.py`（黑底上一滴朱红到琥珀的发光熔岩，≤32px 用去掉文字的简化版），用 Electron 渲染 SVG。
+发布新版本：`npm run release -- patch|minor|major|current`（需要 `gh auth login`），会升版本号、打包，并用 `gh release create` 上传安装包、blockmap 和 `latest.yml`，发布说明取 `docs/releases/v<版本>.md`。图标：`python scripts/make-icons.py` 一次生成 Windows 桌面（exe、托盘、设置页）的全部图标，图形定义在 `scripts/icons/lava.py`（黑底上一滴朱红到琥珀的发光熔岩，≤32px 用去掉文字的简化版），用 Electron 渲染 SVG。
 
 改名说明：旧名「Lens 截图翻译」的配置会在首次启动时从 `%APPDATA%\Lens 截图翻译` 迁移到 `%APPDATA%\LavaTranslate`。
 
@@ -112,7 +112,7 @@ Mac 1.4.9 起启用检查与 ZIP 自动下载。默认 ad-hoc 构建的 `autoIns
 `npm run check:layout` 使用隐藏 Electron 窗口、实际 Canvas 字体测量和共享 React 组件运行回归，无需翻译服务或 API Key。
 覆盖大标题与小字并排、两列、密集段落、居中/右对齐、OCR 框交叠、长网址、图标和竖排，测试 1 / 1.25 / 1.5 / 2 / 3 倍坐标缩放；
 检查译文/补丁不覆盖邻居、译文不越出截图、流式到达不挪动已有块、窄行不会硬塞超宽字符。
-目视复查图输出到 `.scratch/layout-check/regression.png`。测试数据随 `scripts/layout.test.tsx` 提交，Windows / Mac / 安卓 WebView 使用同一套排版逻辑；Mac 字体和安卓实机仍须在对应设备复查。
+目视复查图输出到 `.scratch/layout-check/regression.png`。测试数据随 `scripts/layout.test.tsx` 提交，Windows 使用这一套排版逻辑。
 
 排版回归测试（测试素材在本地 `.scratch/`，未纳入仓库）：`.scratch/pages` 里是真实网页截图，`.scratch/fixtures/*.jsonl` 是按提示词写的模型输出，
 `LENS_REVIEW=1 LENS_AUTOTEST_ROOT=. npx electron .` 回放并截图，`python .scratch/compare.py` 生成原图/译图对照。
@@ -123,10 +123,9 @@ Mac 1.4.9 起启用检查与 ZIP 自动下载。默认 ad-hoc 构建的 `autoIns
 
 ## 开发
 
-打包配置中的 `win.files` / `mac.files` 必须保留正向条目 `package.json`。electron-builder 会将根级 `files` 规范化为独立 FileSet；
+打包配置中的 `win.files` 必须保留正向条目 `package.json`。electron-builder 会将根级 `files` 规范化为独立 FileSet；
 平台级如果只有排除项，会额外建立一个默认包含 `**/*` 的匹配器，把 `.scratch`、源码和旧安装包也带入应用。
 `npm run check:platform` 使用规范化后的实际匹配器检查这条边界；打包后仍应核对 `app.asar` 的文件范围。
-
 ```bash
 npm install
 npm run models   # 下载 OCR 模型（需要 python + onnx 才能打 ArgMax 补丁，否则用原始模型）
@@ -146,122 +145,6 @@ npm run dist     # 打包 NSIS 安装程序到 dist/
 - `LENS_ENGINE_TEST=1 LENS_PROVIDER_KEY=<DeepSeek Key> LENS_OPENAI_MODEL=deepseek-flash npx electron .`
 - 可加 `LENS_ENGINE_IMAGE=chat.png`（换测试图）、`LENS_REPLY_TEST="要回复的话"`（同时测回复助手，`LENS_REPLY_TO=<语言>` 改目标、`LENS_REPLY_BOTH=1` 测输入翻译的自动互译）。
 - 旧格式设置迁移：`LENS_AUTOTEST=1 LENS_MOCK=1 LENS_AUTOTEST_SEED=<旧 settings.json> npx electron .`
-
-## macOS 版（Apple Silicon）
-
-macOS / Apple Silicon 的适配状态、源码转移和本机打包方式另见 [MACOS.md](MACOS.md)。
-
-## 安卓版（开发中）
-
-与桌面版在同一个仓库：翻译引擎、提示词、流式解析、服务商目录、排版还原、回复助手两端共用，安卓只写系统相关的部分。
-
-```
-src/core/        两端共用、与平台无关：translator（提示词、JSONL 解析、接口回退）、detect（识别 Key）、prices、lang
-                 网络由宿主注入（platform.ts）：桌面用 Electron net.fetch，安卓用原生 OkHttp 代发
-src/mobile/      手机版网页：overlay.html（全屏翻译）、settings.html（设置），vite.mobile.config.ts 构建到 out/mobile
-android/         Kotlin 原生壳（Gradle）：
-  capture/LavaAccessibilityService
-                   无障碍模式（推荐，Android 11+）的服务：界面全在 LiveHost；接界面事件、截屏；
-                   没有前台服务、通知，不需要悬浮窗权限
-  LiveHost         无障碍模式的界面与状态：顶部毛玻璃横条 → 整屏翻译（穿透的冻结截图 + 小胶囊）→ 手指一碰让开、停下自动重译 → 回复；读屏、释放、锁屏
-  capture/NodeText 从无障碍节点读屏幕文字：逐行、带每个字的位置（EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY），被上层窗口盖住的不读
-  ui/Glass, Views  毛玻璃横条（无障碍图层上的透明主题 Dialog + 背景模糊、可上下拖动）、小胶囊（普通无障碍图层窗口、贴边，`FLAG_WATCH_OUTSIDE_TOUCH`）；原生，点图标立刻出现
-  LaunchActivity   点图标：就绪时直接弹面板、否则打开设置页（SettingsActivity）；桌面图标的组件名仍是 .MainActivity（别名）
-  ScreenHost       截屏授权模式的翻译界面宿主：悬浮球、全屏冻结截图、截屏 → OCR → 交给网页，空闲释放
-  FloatService     截屏授权模式（备用）：前台服务 + 悬浮窗 + 系统截屏授权（ProjectionCapturer）
-  BubbleView       原生悬浮球（截屏授权模式；贴边、拖动、单击翻译、长按打开菜单）
-  OverlayHost      全屏覆盖窗口 + WebView：用时才创建；三种状态：透明不接触摸（等网页画好、译文让开、按住对比）、
-                   穿透（无障碍模式的译文：看得见，触摸、返回键、焦点都留给下面的应用）、可交互（冻结截图、回复框、出错提示）；
-                   之间只改窗口参数，不重新加窗口
-  TranslateTileService / QuickReplyTileService
-                   下拉快捷开关「翻译屏幕」「快捷回复」：无障碍模式由服务自己收起通知栏（全局操作），否则经由透明中转页
-  ocr/PaddleOcr    ocr.ts 的逐行移植（同一套 PP-OCRv6 模型，ONNX Runtime CPU 后端）
-  web/Bridge       原生 ↔ 网页消息通道（WebMessageListener）；截图像素走 /frame/<id> 直接取，不走消息
-  web/NetBridge    网页的模型请求由 OkHttp 代发并流式回传（WebView 里直接请求会被跨域拦截）
-```
-
-- **两种模式**（`captureMode`）：无障碍模式开一次一直有效，开机由系统拉起；系统截屏授权在 Android 14 起每个会话都要用户同意一次，
-  Android 15 QPR1 起锁屏会结束会话，授权期间状态栏的共享计时每秒刷新一次（静止画面上每分钟多合成约 60 帧，屏幕降不到最低刷新率），
-  所以关掉翻译 5 分钟后主动结束会话。会话期间虚拟显示器平时不接画面（`setSurface(null)`），截屏时才接上取一帧。
-- **不要系统无障碍按钮**：入口是点图标弹出的面板。服务带 `flagRequestAccessibilityButton` 时（1.3.9 及以前），Android 12+ 的无障碍页面
-  只有「快捷方式」开关，打开它就是开启服务，同时系统自动在屏幕边上加一个悬浮的无障碍按钮——多余且不好关，所以去掉了这个标记，
-  页面上就是普通的开关。从老版本升级的手机上按钮还在（系统不会撤掉 `accessibility_button_targets`，应用也改不了），而且没有这个标记后
-  点它会直接关掉本服务：`LavaAccessibilityService.shortcutLeft` 检测到时设置页提示去关掉「快捷方式」，升级后第一次点图标先打开设置页（`shortcutNotice`）。
-  侧载应用开启无障碍要先解除「受限制的设置」（vivo 是「风险受限 → 解除限制」，同时解除悬浮窗权限的限制）。
-  调研过「默认数字助理」入口：Android 17 实测第三方助理拿不到截图和屏幕文字，vivo 上也藏起了该设置，不可用。
-- **整屏翻译**（`LiveHost`）：和截屏授权模式一样是冻结截图 + 译文（v1.3.6 只画译文块、不画截图的实时方案，在读不到逐字位置的
-  应用上排版严重错乱，已放弃），但译文窗口是穿透的（`FLAG_NOT_TOUCHABLE | FLAG_NOT_FOCUSABLE`，无障碍图层是受信任的窗口，
-  不受 Android 12 的「不可信触摸」拦截）：触摸、返回键照常交给下面的应用，应用也不会失去焦点（输入法不收起）。
-  怎么知道「手指碰了屏幕」：小胶囊窗口带 `FLAG_WATCH_OUTSIDE_TOUCH`，屏幕任何地方按下时收到一次 `ACTION_OUTSIDE`
-  （只有按下那一下，别的应用的坐标是 0；对游戏、自绘界面也有效），立刻把译文改成透明。所以第一下滑动就是在滚动应用，
-  点按译文就是点按下面对应的控件（安卓不能把进行中的手势转交给下层窗口，所以「先拦下再放行」做不到）。
-  小胶囊在译文层之后加入，所以叠在它上面（同类型的无障碍图层按加入顺序叠放）；译文层在整个翻译期间一直挂着。
-  让开后用 `setServiceInfo` 订阅滚动、换页事件（原生和网页应用在手指一动后约 50 ms 就发滚动事件），开始翻译就取消；
-  事件停下 450 ms 后重新截屏翻译；按下后一直没有事件（只是点了一下）则 700 ms 后比较这一帧的节点文字指纹
-  （包括读不到逐字位置的节点），没变就把网页里还在的译文原样放回来，不重新截屏。截屏和译文显示时只订阅「窗口状态变化」
-  （返回键、弹窗、页面过场）：显示时收到就让开、按同样规则处理；截屏、读文字时收到（例如刚点开的页面还在过场动画）就作废这张截图，停稳了再截。会误报的事件：输入法弹出 / 收起（按默认输入法的包名忽略）、
-  译文层交出焦点（回复框收起后 600 ms 内的不算）。
-  出错且提示上有按钮（去设置、重试）时译文变成可交互，重试成功后回到穿透；网页里的「用 X 回复」按钮在无障碍模式不显示（回复在小胶囊上）。
-  读屏：先让译文层消失两帧再截屏，小胶囊所在的区域抹成旁边的颜色；文字优先用 `NodeText`，只要有一个文字节点读不到逐字位置
-  （只知道整个节点的框，常把名字、时间、消息合在一起）或一行都没有，就整屏对截图做 OCR。
-  网页 `liveCache.ts`：按「块」缓存译文（几行原文 → 译文），新屏幕上连续几行与缓存块的原文一致就直接套用，只把剩下的行发给模型
-  （带整屏截图作上下文），换目标语言时清空。
-  译文上打开回复框、快捷回复时收起小胶囊（网页发 `composer`），免得挡住输入框。
-  网页冷启动发 `hello` 时译文层已经挂上（正在截屏），这时不能暂停网页，否则第一次翻译画不出来。
-- **系统截屏、录屏与系统界面**（`LiveHost.systemUi`）：无障碍图层在所有系统窗口之上（截屏预览 `TYPE_SCREENSHOT`、状态栏、
-  导航条、音量条都更低），不处理的话截屏预览、录屏控制条、通知横幅全被译文盖住。翻译中订阅 `TYPE_WINDOWS_CHANGED`，用
-  `getWindows()` 找出应用以外的窗口（`TYPE_SYSTEM`，别的应用的悬浮窗 `TYPE_APPLICATION_OVERLAY` 也报成它；外加画中画、
-  别的无障碍服务的图层；输入法不算）：面积小于屏幕 30% 的在译文上挖空（`OverlayHost.holes`，网页画完后用 `CLEAR` 抹透明，
-  下面的窗口露出来，译文照常显示，录屏录得到译文）；大的（截屏后的预览窗口是全屏的、通知栏、关机菜单）在拿了焦点或停留 250 ms 后
-  （音量条弹出的头一两帧报的是一大块）让译文让开、不截屏，收起后按「碰了一下」的规则放回或重译。翻译开始时就在的大窗口不算。
-  截进这一帧的小窗口只在识别用的副本里抹掉，这一帧显示期间那里一直挖空（它收起后不能露出截图里过时的它）。
-  这些窗口自己发的「窗口状态变化」不当成应用换页。系统截屏（电源键 + 音量下）照常截到译文；三指下滑截屏时手指一按下译文就让开了，预计截到原文（待真机确认）。
-  不能改用 `TYPE_APPLICATION_OVERLAY`：它不是受信任的窗口，不透明时穿透的触摸会被 Android 12 起的「不可信触摸」拦下。
-- **毛玻璃**：只有半透明窗口（`windowIsTranslucent`）才有 `setBackgroundBlurRadius` 背景模糊，所以面板、胶囊用透明主题的 Dialog；
-  普通 Dialog 不模糊（模拟器实测）。系统关掉跨窗口模糊（省电模式、不支持）时换成更不透明的深色底。
-- **锁屏**：无障碍图层会显示在锁屏上面，所以关屏时收起所有窗口、退出翻译，解锁（`USER_PRESENT`，由系统界面发出，
-  接收要 `RECEIVER_EXPORTED`）后再显示；锁屏期间按钮、快捷开关都不响应。
-- **识别范围**：去掉顶部状态栏；底部不去（Android 15 起应用都画到导航条下面）。
-- **OCR 性能**：检测图最长边 1280（手机截图字大，够用）；用时才载入，不预热（预热要多跑一遍完整识别）。XNNPACK 后端在 ORT 1.30 会崩溃，NNAPI 已弃用，只用 CPU。
-  ORT 内存池开着：识别后按最大输入尺寸留着约 500 MB，但关掉它识别慢约 1.7 倍、CPU 多用约 50%（模拟器实测，`ocrBench` 的 `arena` 参数可复测），所以开着、用完整个释放。
-  模拟器（x86_64，4 线程）上 20 行聊天截图检测约 270 ms、识别约 600 ms；真机待测。
-- **截屏授权模式的界面**：翻译时原生悬浮球藏起，由网页里一模一样的球接替（单击或返回键退出、长按打开菜单、拖动换边）；
-  不在翻译时长按悬浮球，同一个网页以 menu 模式打开（退出 / 设置 / 译成 / 快捷回复，常用的在最下面）。回复助手复用桌面组件（`window.lens` 由 `replyHost.ts` 在网页内实现）。
-- **省电**：闲置时进程几乎不占 CPU（模拟器上实测每分钟约 40 ms，`.scratch/idle-cpu.sh`、`idle-threads.sh` 可复测）：
-  网页不在屏幕上时 `onPause` + `pauseTimers`（`LavaApp.webVisible`）；无障碍服务不订阅任何界面事件；ONNX Runtime 关掉线程自旋（每次识别少用约 20% CPU，速度不变）。
-  内存（模拟器实测）：翻译一次后进程约 680 MB PSS（OCR 内存池约 500 MB）+ 网页渲染进程约 250 MB。翻译界面关掉 3 分钟后（或关屏时）
-  销毁 WebView、关掉 OCR 会话，降到约 200 MB、渲染进程退出（面板出现时预先载入网页，点「翻译」时不用等）。
-  网页引擎载入后只有结束进程才释放，系统会以只带无障碍服务的小进程（约 45 MB）重新拉起；但重新拉起有延迟，反复结束时越来越长
-  （模拟器上第二次就等了约 30 s，期间点图标没反应），所以只在关屏 30 分钟后才结束进程（`AlarmManager` 唤醒一次）。
-  设置页 `autoRemoveFromRecents`：不留在最近任务里，免得「一键清理」把应用强行停止（强行停止会连带关掉无障碍）。
-  截屏授权模式：「退出」（菜单、通知、设置页）停掉前台服务并结束进程；长时间不用（`idleExit` 分钟，默认 60，`AlarmManager.setWindow` 允许推迟 10 分钟）
-  或系统打开省电模式（`saverExit`）时自动退出，留一条点了就重新打开的通知。
-  `WebView.setWebContentsDebuggingEnabled` 会载入整个 WebView 引擎，所以放在 `createWebView` 里，不放 `Application.onCreate`。
-
-编译环境：JDK 17+、Android SDK（platform 37、build-tools 37），在 `android/local.properties` 写 `sdk.dir`。先 `npm install`、`npm run models`。
-
-```bash
-cd android
-./gradlew assembleDebug     # 调试版（arm64 + x86_64 一个包），会先自动 npm run build:mobile
-./gradlew assembleRelease   # 正式版：按架构分包，手机装 app-arm64-v8a-release.apk
-```
-
-- **正式签名**：`android/keystore.properties`（不进仓库）写 `storeFile / storePassword / keyAlias / keyPassword`，指向仓库外的密钥文件。
-  应用内更新要求每个版本签名相同，**密钥和密码丢了就再也发不了能覆盖安装的更新**，务必备份。没有这个文件时正式版退回调试签名（只能自己装）。
-- **应用内更新**（`update/Updater.kt`）：读 `https://github.com/<owner>/<repo>/releases/latest/download/latest-android.json`
-  （版本号、versionCode、APK 地址、大小、SHA-256、更新说明），有新版本就下载（断点续传、校验 SHA-256），交给系统安装器。
-  打开应用、截屏授权模式的悬浮球开着时、无障碍模式每次用完时，至多每天自动检查一次；Wi-Fi 下自动下载好并发通知，流量下只提示。第一次要允许「安装未知应用」并确认一次；
-  装过一次之后应用就是自己的安装来源，之后的更新不再弹确认（`UPDATE_PACKAGES_WITHOUT_USER_ACTION`，Android 12+）。
-  装好后自动恢复悬浮球、回到设置页（`ReplacedReceiver`）。
-- **发版**：`npm run release` 同时打安卓正式包，把 `LavaTranslate-Android-<版本>.apk` 和 `latest-android.json` 一起传到同一个 Release
-  （需要 `JAVA_HOME`、`android/local.properties`、`android/keystore.properties`；`LAVA_SKIP_ANDROID=1` 只发桌面版）。
-  安卓的 versionCode = 主版本×10000 + 次版本×100 + 修订号，与 package.json 的版本号一一对应。
-- 测试升级：`./gradlew assembleDebug -PlavaVersion=x.y.z` 打一个「更新的」包；调试版可在设置里写 `updateManifest` 指向本机的测试清单。
-
-- 仓库路径含中文：`android/gradle.properties` 里 `android.overridePathCheck=true`（AGP 默认拒绝非 ASCII 路径，实测可以编译）。
-- 调试版带一个演示页 `DemoActivity`（`adb shell am start -n com.lavatranslate.app/.DemoActivity -d <网址>`），可以在模拟器里翻译任意网页，不用装别的应用。
-- 网页调试：`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>` 后用 Chrome DevTools 协议连接（调试版开启了 WebView 调试）；
-  翻译界面里 `window.__lava` 是当前的识别、翻译结果，控制台有 `[lava] ocr / done` 的耗时。
 
 ## 说明
 

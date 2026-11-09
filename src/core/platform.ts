@@ -1,5 +1,4 @@
-// 宿主注入的平台能力。core 里的代码桌面（Electron 主进程）和安卓（WebView）共用：
-// 桌面用 Electron net（Chromium 网络栈、系统代理、HTTP/2），安卓用原生 OkHttp 转发（绕开 WebView 的跨域限制）
+// 宿主注入的平台能力。桌面用 Electron net（Chromium 网络栈、系统代理、HTTP/2）
 
 export interface Platform {
   fetch: typeof fetch

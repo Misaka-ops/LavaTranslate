@@ -2,10 +2,9 @@ import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { DEFAULT_SETTINGS, type Settings as S } from '../src/shared/types'
 
-export async function checkSettingsHotkey(platform: 'Win32' | 'MacIntel') {
-  Object.defineProperty(navigator, 'platform', { value: platform, configurable: true })
+export async function checkSettingsHotkey() {
   let saved: S = structuredClone(DEFAULT_SETTINGS)
-  saved.hotkey = platform === 'MacIntel' ? 'Alt+Space' : 'Super+Space'
+  saved.hotkey = 'Super+Space'
   const listeners = new Set<(s: S) => void>()
   const off = () => () => {}
   let rejectNext = false
@@ -13,11 +12,10 @@ export async function checkSettingsHotkey(platform: 'Win32' | 'MacIntel') {
   Object.assign(window, { lens: {
     uiLang: () => 'zh-Hans', onUiLang: off,
     getSettings: async () => saved, onSettings: (cb: (s: S) => void) => { listeners.add(cb); return () => listeners.delete(cb) },
-    appInfo: async () => ({ version: 'test' }), updateState: async () => ({ state: 'ready', version: '1.4.8', next: '1.4.9', manualInstall: platform === 'MacIntel' }), onUpdate: off,
+    appInfo: async () => ({ version: 'test' }), updateState: async () => ({ state: 'ready', version: '1.4.8', next: '1.4.9' }), onUpdate: off,
     updateInstall: () => { updateOpens++ },
     engineStatus: async () => ({ provider: 'deepseek', ok: true, detail: 'deepseek-flash · DeepSeek' }), ocrInfo: async () => 'CPU',
     suspendHotkey: async () => {}, onHotkeyRecorded: off,
-    macSettingsStatus: async () => ({}),
     setHotkey: async (hotkey: string) => {
       if (rejectNext) return { ok: false, message: 'hotkey.taken' }
       saved = { ...saved, hotkey }
@@ -60,12 +58,10 @@ export async function checkSettingsHotkey(platform: 'Win32' | 'MacIntel') {
     click('[data-page="about"]')
     await wait(() => !!host.querySelector('.update-card.ready button'))
     const button = host.querySelector('.update-card.ready button')!
-    assert(button.textContent?.includes(platform === 'MacIntel' ? '查看更新包' : '重启'), 'update action must match install mode')
-    assert(!host.textContent?.includes('Mac 预览版'), 'packaged Mac is not unconditionally labeled a preview')
-    if (platform === 'MacIntel') assert(host.querySelector('.update-card')?.textContent?.includes('Finder'), 'Mac must explain the installation step')
+    assert(button.textContent?.includes('重启'), 'update action must be the Windows restart action')
     click('.update-card.ready button')
     assert(updateOpens === 1, 'update action must reach the main process')
-    return `${platform}: three-page settings, shortcut synchronization and update install mode`
+    return 'Win32: three-page settings, shortcut synchronization and update install mode'
   } finally { root.unmount(); host.remove() }
 }
 
