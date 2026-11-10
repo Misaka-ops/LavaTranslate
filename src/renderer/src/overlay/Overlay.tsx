@@ -37,7 +37,6 @@ interface FrameMeta {
   width: number
   height: number
   scale: number
-  windows: Rect[]
 }
 
 const MIN_SIZE = 6
@@ -58,8 +57,9 @@ export function Overlay() {
   const [stage, setStage] = useState<Stage>('hidden')
   const [shown, setShown] = useState(false)
   const [sel, setSel] = useState<Rect | null>(null)
-  const [snap, setSnap] = useState<Rect | null>(null)
   const [adjusting, setAdjusting] = useState(false)
+  const finalizeRef = useRef<(r: Rect) => void>(() => {})
+  const copyBlockRef = useRef<(key: string, original?: boolean) => void>(() => {})
   const drag = useRef<Drag | null>(null)
   const [vw, setVw] = useState(window.innerWidth)
   const [vh, setVh] = useState(window.innerHeight)
@@ -117,8 +117,8 @@ export function Overlay() {
   /** 原文 / 译文每切换一次加一：选区上扫过一道光 */
   const [sweepN, setSweepN] = useState(0)
   /** 帧回调只注册一次，靠它读当前状态 */
-  const live = useRef({ stage, sel, snap, meta })
-  live.current = { stage, sel, snap, meta }
+  const live = useRef({ stage, sel, meta, vw, vh, adjusting })
+  live.current = { stage, sel, meta, vw, vh, adjusting }
 
   const scale = meta?.scale ?? window.devicePixelRatio
 
@@ -129,7 +129,6 @@ export function Overlay() {
     setStage('hidden')
     setShown(false)
     setSel(null)
-    setSnap(null)
     setAdjusting(false)
     setLines([])
     setRecognized(null)
@@ -181,7 +180,7 @@ export function Overlay() {
       const view = new Uint8ClampedArray(f.pixels.buffer as ArrayBuffer, f.pixels.byteOffset, f.pixels.byteLength)
       ctx.putImageData(new ImageData(view, f.width, f.height), 0, 0)
       setFrameNo((n) => n + 1)
-      setMeta({ displayId: f.displayId, width: f.width, height: f.height, scale: f.scale, windows: f.windows })
+      setMeta({ displayId: f.displayId, width: f.width, height: f.height, scale: f.scale })
       setTarget(f.targetLang)
       setAutoTranslate(f.autoTranslate)
       setMode(f.displayMode)
@@ -208,11 +207,6 @@ export function Overlay() {
         return
       }
       setStage('idle')
-      if (f.cursor) {
-        const s = f.scale
-        const w = f.windows.find((r) => inside(f.cursor!.x * s, f.cursor!.y * s, r))
-        if (w) setSnap(toCss(w, s))
-      }
       // 隐藏窗口里 rAF 不会触发：画布已同步写入，直接通知主进程即可；
       // 真正显示前主进程会把窗口透明度设为 0，等可见后的首帧再显示
       setTimeout(() => window.lens.frameReady(), 0)
@@ -229,7 +223,6 @@ export function Overlay() {
       reqId.current++
       window.lens.cancel()
       setSel(null)
-      setSnap(null)
       setReplyOpen(false)
       setStage('quick')
       setQuickHere(here)
@@ -364,6 +357,7 @@ export function Overlay() {
     },
     [startTranslate, vw, vh]
   )
+  finalizeRef.current = finalize
 
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0 || stage === 'hidden' || stage === 'quick') return
@@ -385,17 +379,27 @@ export function Overlay() {
   }
 
   useEffect(() => {
+    let raf = 0
+    let pendingSel: Rect | null = null
+    const queueSel = (r: Rect) => {
+      pendingSel = r
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        if (pendingSel) setSel(pendingSel)
+        pendingSel = null
+      })
+    }
+    const cancelQueued = () => {
+      if (raf) cancelAnimationFrame(raf)
+      raf = 0
+      pendingSel = null
+    }
     const move = (e: MouseEvent) => {
       const p = pointAt(e)
       const d = drag.current
-      if (!d) {
-        if (stage === 'idle' && meta) {
-          const w = meta.windows.find((r) => inside(p.x * meta.scale, p.y * meta.scale, r))
-          const next = w ? toCss(w, meta.scale) : null
-          setSnap((prev) => (sameRect(prev, next) ? prev : next))
-        }
-        return
-      }
+      if (!d) return
+      const { vw, vh, adjusting } = live.current
       const dist = Math.hypot(p.x - d.x0, p.y - d.y0)
       if (d.kind === 'pending' && dist > 3) {
         drag.current = { kind: 'draw', x0: d.x0, y0: d.y0 }
@@ -404,13 +408,12 @@ export function Overlay() {
         setStage('drawing')
         setReplyOpen(false)
         replyDismissed.current = false
-        setSnap(null)
         setLines([])
         setBlocks([])
         setPhase('idle')
         setSel(norm(d.x0, d.y0, p.x, p.y))
       } else if (d.kind === 'draw') {
-        setSel(clampRect(norm(d.x0, d.y0, p.x, p.y), vw, vh))
+        queueSel(clampRect(norm(d.x0, d.y0, p.x, p.y), vw, vh))
       } else if (d.kind === 'press' && dist > 3) {
         drag.current = { kind: 'move', x0: d.x0, y0: d.y0, rect: d.rect }
         reqId.current++
@@ -421,7 +424,7 @@ export function Overlay() {
         setPhase('idle')
       } else if (d.kind === 'move') {
         const r = d.rect
-        setSel({
+        queueSel({
           x: Math.max(0, Math.min(vw - r.w, r.x + p.x - d.x0)),
           y: Math.max(0, Math.min(vh - r.h, r.y + p.y - d.y0)),
           w: r.w,
@@ -436,45 +439,48 @@ export function Overlay() {
           setLines([])
           setPhase('idle')
         }
-        setSel(clampRect(resize(d.rect, d.edge, p.x - d.x0, p.y - d.y0), vw, vh))
+        queueSel(clampRect(resize(d.rect, d.edge, p.x - d.x0, p.y - d.y0), vw, vh))
       }
     }
     const up = (e: MouseEvent) => {
       const d = drag.current
       drag.current = null
+      cancelQueued()
       if (!d || e.button !== 0) return
       // 用松开时的坐标直接算最终选区：最后一次 mousemove 的状态可能还没渲染
       const p = pointAt(e)
+      const { vw, vh } = live.current
       if (d.kind === 'pending') {
-        if (stage === 'idle' && snap) finalize(snap)
+        return
       } else if (d.kind === 'draw') {
         const r = clampRect(norm(d.x0, d.y0, p.x, p.y), vw, vh)
-        if (r.w >= MIN_SIZE && r.h >= MIN_SIZE) finalize(r)
+        if (r.w >= MIN_SIZE && r.h >= MIN_SIZE) finalizeRef.current(r)
         else {
           setSel(null)
           setStage('idle')
         }
       } else if (d.kind === 'press') {
-        if (d.block) copyBlock(d.block, e.altKey)
+        if (d.block) copyBlockRef.current(d.block, e.altKey)
       } else if (d.kind === 'move') {
         const r = d.rect
-        finalize({
+        finalizeRef.current({
           x: Math.max(0, Math.min(vw - r.w, r.x + p.x - d.x0)),
           y: Math.max(0, Math.min(vh - r.h, r.y + p.y - d.y0)),
           w: r.w,
           h: r.h
         })
       } else if (d.kind === 'resize') {
-        finalize(clampRect(resize(d.rect, d.edge, p.x - d.x0, p.y - d.y0), vw, vh))
+        finalizeRef.current(clampRect(resize(d.rect, d.edge, p.x - d.x0, p.y - d.y0), vw, vh))
       }
     }
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
     return () => {
+      cancelQueued()
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
     }
-  })
+  }, [])
 
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -498,6 +504,7 @@ export function Overlay() {
     window.lens.copyText(b.keep || original ? b.source : b.translation)
     flash(currentI18n().t(original && !b.keep ? 'ov.copiedSource' : 'ov.copiedBlock'))
   }
+  copyBlockRef.current = copyBlock
 
   const copyAll = useCallback(() => {
     if (!blocks.length) return
@@ -764,11 +771,9 @@ export function Overlay() {
       nativeHold = !!point
       timer = window.setTimeout(() => {
         timer = 0
-        const { stage, sel, snap, meta } = live.current
+        const { stage, sel, meta } = live.current
         if (!meta || drag.current || (document.hasFocus() && isTypingSpace(document.activeElement))) return
-        const hovered = point && meta.windows.find((w) => inside(point.x * meta.scale, point.y * meta.scale, w))
-        const region = point ? (hovered && toCss(hovered, meta.scale)) : snap
-        const rect = stage === 'selected' ? sel : stage === 'idle' ? region ?? { x: 0, y: 0, w: meta.width / meta.scale, h: meta.height / meta.scale } : null
+        const rect = stage === 'selected' ? sel : stage === 'idle' ? { x: 0, y: 0, w: meta.width / meta.scale, h: meta.height / meta.scale } : null
         if (rect) window.lens.passthrough(rect)
       }, HOLD_MS)
     }
@@ -882,7 +887,7 @@ export function Overlay() {
   const rpPos = useMemo(() => (sel && tbPos ? replyPlace(sel, tbPos, tbSize, Math.max(rpH, RP_RESERVE), vw, vh) : null), [sel, tbPos, tbSize, rpH, vw, vh])
 
   const working = phase === 'ocr' || phase === 'translating'
-  const maskRect = stage === 'idle' ? snap : sel
+  const maskRect = sel
   const scrollRect = passing && (sel ?? scrollSelection.current)
   const showToolbar = stage === 'selected' && !adjusting && !capturing && tbPos
   const showReply = !!showToolbar && replyOpen && !!rpPos
@@ -958,19 +963,6 @@ export function Overlay() {
         }
       />
 
-      {/* 窗口吸附高亮 */}
-      <AnimatePresence>
-        {stage === 'idle' && snap && shown && (
-          <motion.div
-            className="snap"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1, left: snap.x, top: snap.y, width: snap.w, height: snap.h }}
-            exit={{ opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 520, damping: 42, opacity: { duration: 0.15 } }}
-          />
-        )}
-      </AnimatePresence>
-
       {sel && stage === 'selected' && !adjusting && (
         <div className="sel-hit" style={{ left: sel.x, top: sel.y, width: sel.w, height: sel.h }} />
       )}
@@ -1038,7 +1030,6 @@ export function Overlay() {
       {/* 选区框 */}
       {sel && (stage === 'drawing' || stage === 'selected') && !capturing && (
         <div className={`sel-frame${phase === 'translating' ? ' working' : ''}${working && altPeek ? ' paused' : ''}${phase === 'done' && !recognized ? ' done' : ''}`} style={{ left: sel.x, top: sel.y, width: sel.w, height: sel.h }}>
-          <div className="sel-glow" />
           {stage === 'selected' && EDGES.map((ed) => <div key={ed} className={`handle h-${ed}`} data-edge={ed} />)}
         </div>
       )}
@@ -1287,10 +1278,6 @@ function clampRect(r: Rect, vw: number, vh: number): Rect {
   return { x, y, w: Math.min(vw - x, r.w - (x - r.x)), h: Math.min(vh - y, r.h - (y - r.y)) }
 }
 
-function toCss(r: Rect, s: number): Rect {
-  return { x: r.x / s, y: r.y / s, w: r.w / s, h: r.h / s }
-}
-
 /** 两帧截图在选区（物理像素）里是否一样；零星几个像素的变化不算 */
 function sameRegion(a: Uint8Array, b: Uint8Array, width: number, r: Rect) {
   if (a.length !== b.length) return false
@@ -1302,11 +1289,6 @@ function sameRegion(a: Uint8Array, b: Uint8Array, width: number, r: Rect) {
     }
   }
   return true
-}
-
-function sameRect(a: Rect | null, b: Rect | null) {
-  if (!a || !b) return a === b
-  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
 }
 
 function union(rs: Rect[]): Rect {

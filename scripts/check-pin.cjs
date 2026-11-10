@@ -90,7 +90,7 @@ app.whenReady().then(async () => {
   }
   overlay.webContents.send('overlay:frame', {
     displayId: screen.getPrimaryDisplay().id, width: 900, height: 650, scale: 1, pixels,
-    cursor: null, windows: [], targetLang: 'zh-Hans', autoTranslate: true, displayMode: 'overlay',
+    cursor: null, targetLang: 'zh-Hans', autoTranslate: true, displayMode: 'overlay',
     hotkey: 'Super+Space', replyAssist: false, replyTone: 'auto', quick: false, refresh: false
   })
   overlay.webContents.send('overlay:shown')

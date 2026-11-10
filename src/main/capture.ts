@@ -1,8 +1,7 @@
 // 屏幕截图（node-screenshots：Windows DXGI/GDI）与窗口区域枚举
 import { screen, type Display } from 'electron'
-import { Monitor, Window } from 'node-screenshots'
+import { Monitor } from 'node-screenshots'
 import type { Rect } from '../shared/types'
-import { windowOnCapture } from './capture-geometry'
 
 export interface DisplayCapture {
   display: Display
@@ -10,8 +9,6 @@ export interface DisplayCapture {
   height: number
   scale: number
   rgba: Buffer
-  /** 该显示器上可见窗口的区域（物理像素，相对显示器左上角，按 z 序从上到下） */
-  windows: Rect[]
 }
 
 interface MonitorInfo {
@@ -51,32 +48,16 @@ function matchMonitors(displays: Display[]): Map<number, MonitorInfo> {
   return result
 }
 
-/** exclude：不参与窗口吸附的 Windows 句柄（按住空格穿透时，透明遮罩仍在最上面）。 */
-export async function captureAll(exclude: Set<number> = new Set()): Promise<DisplayCapture[]> {
+export async function captureAll(): Promise<DisplayCapture[]> {
   const displays = screen.getAllDisplays()
   const map = matchMonitors(displays)
-  // 窗口列表要在遮罩窗口显示之前取
-  let wins: { x: number; y: number; w: number; h: number }[] = []
-  try {
-    wins = Window.all()
-      .filter((w) => !w.isMinimized() && w.width() > 40 && w.height() > 24 && !exclude.has(w.id()))
-      .sort((a, b) => b.z() - a.z())
-      .map((w) => ({ x: w.x(), y: w.y(), w: w.width(), h: w.height() }))
-  } catch {
-    wins = []
-  }
 
   const jobs = displays.map(async (display): Promise<DisplayCapture | null> => {
     const mi = map.get(display.id)
     if (!mi) return null
     const img = await mi.m.captureImage()
     const rgba = await img.toRaw(true)
-    const windows: Rect[] = []
-    for (const w of wins) {
-      const rect = windowOnCapture(w, mi, img)
-      if (rect) windows.push(rect)
-    }
-    return { display, width: img.width, height: img.height, scale: img.width / display.bounds.width, rgba, windows }
+    return { display, width: img.width, height: img.height, scale: img.width / display.bounds.width, rgba }
   })
   const captures = (await Promise.all(jobs)).filter((c): c is DisplayCapture => !!c)
   if (!captures.length) throw new Error('No displays available for screen capture')

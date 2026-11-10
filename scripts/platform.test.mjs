@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { stripTypeScriptTypes } from 'node:module'
 import { matchesTargetLanguage } from '../src/main/ocr-language.ts'
 
 test('skip aligned OCR locally, preserving mixed languages and Chinese script conversion', async () => {
@@ -31,27 +29,4 @@ test('unreliable, empty and vertical OCR never bypasses image translation as alr
     [{ text: '和', score: 0.99, vertical: true }],
     [{ text: '你好', score: 0.99 }, { text: '', score: 0 }]
   ]) assert.equal(await matchesTargetLanguage(lines, 'zh-Hans'), false)
-})
-
-const source = readFileSync(new URL('../src/main/capture-geometry.ts', import.meta.url), 'utf8')
-const js = stripTypeScriptTypes(source)
-const { windowOnCapture } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`)
-
-test('Windows physical coordinates stay unchanged at 150% desktop scaling', () => {
-  assert.deepEqual(windowOnCapture(
-    { x: 1950, y: 100, w: 900, h: 600 }, { x: 1920, y: 0, w: 2560, h: 1440 }, { width: 2560, height: 1440 }
-  ), { x: 30, y: 100, w: 900, h: 600 })
-})
-test('each monitor uses its own capture scale in a mixed-DPI setup', () => {
-  const window = { x: 1400, y: 200, w: 400, h: 300 }
-  assert.deepEqual(windowOnCapture(window, { x: 0, y: 0, w: 1512, h: 982 }, { width: 3024, height: 1964 }),
-    { x: 2800, y: 400, w: 224, h: 600 })
-  assert.deepEqual(windowOnCapture(window, { x: 1512, y: 0, w: 1920, h: 1080 }, { width: 1920, height: 1080 }),
-    { x: 0, y: 200, w: 288, h: 300 })
-})
-test('non-overlapping and invalid monitor rectangles are ignored', () => {
-  const monitor = { x: 0, y: 0, w: 1440, h: 900 }
-  const image = { width: 2880, height: 1800 }
-  assert.equal(windowOnCapture({ x: 1500, y: 0, w: 600, h: 400 }, monitor, image), null)
-  assert.equal(windowOnCapture({ x: 0, y: 0, w: 600, h: 400 }, { ...monitor, w: 0 }, image), null)
 })

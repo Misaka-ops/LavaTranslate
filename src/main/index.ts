@@ -172,6 +172,9 @@ function createOverlay(display: Display): Overlay {
   })
   win.setAlwaysOnTop(true, 'screen-saver')
   win.setMenu(null)
+  // 窗口只在启动时显示一次并保持常驻；后续只切换透明度，避免 Win11 每次 show 都播放打开动画。
+  win.setOpacity(0)
+  win.setIgnoreMouseEvents(true)
   win.on('close', (e) => {
     if (!quitting) {
       e.preventDefault()
@@ -179,6 +182,7 @@ function createOverlay(display: Display): Overlay {
     }
   })
   loadPage(win, 'overlay')
+  if (!AUTOTEST) win.showInactive()
   return { win, displayId: display.id }
 }
 
@@ -194,7 +198,10 @@ function syncOverlays() {
   for (const d of displays) {
     const o = overlays.get(d.id)
     if (!o) overlays.set(d.id, createOverlay(d))
-    else o.win.setBounds(d.bounds)
+    else {
+      const b = o.win.getBounds()
+      if (b.x !== d.bounds.x || b.y !== d.bounds.y || b.width !== d.bounds.width || b.height !== d.bounds.height) o.win.setBounds(d.bounds)
+    }
   }
 }
 
@@ -211,6 +218,8 @@ let lastHotkey = 0
 let quickPending = false
 let framesShown = false
 let hiding: Promise<void> | null = null
+/** 当前截图的各显示器都画好后才一起显现，避免多屏窗口分别播放显示过程。 */
+const readyOverlays = new Set<number>()
 
 function onHotkey() {
   const now = Date.now()
@@ -289,6 +298,7 @@ function presentCaptures(caps: DisplayCapture[], refresh = false) {
   const s = settings.get()
   overlayActive = true
   captures = new Map(caps.map((c) => [c.display.id, c]))
+  readyOverlays.clear()
   ocrCache.clear()
   const cursor = screen.getCursorScreenPoint()
   const cursorDisplay = screen.getDisplayNearestPoint(cursor)
@@ -303,7 +313,6 @@ function presentCaptures(caps: DisplayCapture[], refresh = false) {
       scale: cap.scale,
       pixels: cap.rgba,
       cursor: cap.display.id === cursorDisplay.id ? { x: cursor.x - b.x, y: cursor.y - b.y } : null,
-      windows: cap.windows,
       targetLang: s.targetLang,
       autoTranslate: s.autoTranslate,
       displayMode: s.displayMode,
@@ -326,28 +335,29 @@ ipcMain.on('overlay:frame-ready', (e) => {
   if (process.env.LENS_SHOWTEST && o) console.log('[show] frame-ready display', o.displayId, Date.now() - tHotkey, 'ms')
   if (!o || !overlayActive || passthrough) return
   if (AUTOTEST) return o.win.webContents.send('overlay:shown')
-  const display = screen.getAllDisplays().find((d) => d.id === o.displayId)
-  if (display) {
-    o.win.setBounds(display.bounds)
-    o.win.setBounds(display.bounds)
+  readyOverlays.add(o.displayId)
+  const displayIds = [...captures.keys()].filter((id) => overlays.has(id))
+  if (displayIds.some((id) => !readyOverlays.has(id))) return
+
+  for (const id of displayIds) {
+    const target = overlays.get(id)
+    if (!target) continue
+    target.win.setOpacity(1)
+    target.win.setIgnoreMouseEvents(false)
+    target.win.setAlwaysOnTop(true, 'screen-saver')
   }
-  o.win.setOpacity(0)
-  o.win.setIgnoreMouseEvents(false)
-  o.win.setAlwaysOnTop(true, 'screen-saver')
   const cursor = screen.getCursorScreenPoint()
   const cursorDisplay = screen.getDisplayNearestPoint(cursor).id
-  const activeDisplay = (captures.has(cursorDisplay) ? cursorDisplay : captures.keys().next().value) === o.displayId
-  if (activeDisplay) {
-    o.win.show()
-    forceForeground(hwndOf(o.win.getNativeWindowHandle()))
-    o.win.focus()
-    o.win.webContents.focus()
-  } else {
-    o.win.showInactive()
+  const activeId = displayIds.includes(cursorDisplay) ? cursorDisplay : displayIds[0]
+  const active = activeId === undefined ? undefined : overlays.get(activeId)
+  if (active) {
+    forceForeground(hwndOf(active.win.getNativeWindowHandle()))
+    active.win.focus()
+    active.win.webContents.focus()
   }
   // The first plain Space can go down before the overlay takes keyboard focus.
-  const spaceHeld = activeDisplay && process.platform === 'win32' && plainSpaceHeld()
-  o.win.webContents.send('overlay:shown')
+  const spaceHeld = activeId === o.displayId && process.platform === 'win32' && plainSpaceHeld()
+  for (const id of displayIds) overlays.get(id)?.win.webContents.send('overlay:shown')
   if (spaceHeld) requestScrollAtCursor()
 })
 
@@ -400,11 +410,13 @@ function hideOverlays(immediate = false) {
 async function doHide(immediate: boolean) {
   for (const ctl of translations.values()) ctl.abort()
   translations.clear()
-  const visible = [...overlays.values()].filter((o) => o.win.isVisible())
+  const visible = [...overlays.values()].filter((o) => o.win.isVisible() && o.win.getOpacity() > 0)
   await Promise.all(visible.map((o) => (immediate ? Promise.resolve() : fadeOut(o.win, 140))))
-  for (const o of visible) {
-    o.win.hide()
-    o.win.setIgnoreMouseEvents(false)
+  readyOverlays.clear()
+  for (const o of overlays.values()) {
+    if (o.win.isDestroyed()) continue
+    o.win.setOpacity(0)
+    o.win.setIgnoreMouseEvents(true)
     o.win.webContents.send('overlay:reset')
   }
   // 截图数据保留片刻，便于连续操作；之后释放内存
@@ -489,8 +501,7 @@ async function endPassthrough(p: NonNullable<typeof passthrough>) {
   await new Promise((resolve) => setTimeout(resolve, 50))
   if (passthrough !== p) return
   try {
-    const excluded = process.platform === 'win32' ? [...overlays.values()].map((o) => hwndOf(o.win.getNativeWindowHandle())) : []
-    const caps = await captureAll(new Set(excluded))
+    const caps = await captureAll()
     if (passthrough !== p) return
     passthrough = null
     presentCaptures(caps, true)

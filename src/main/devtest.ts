@@ -61,7 +61,7 @@ export function fakeCapture(display: Electron.Display, imagePath: string, at: { 
       rgba[d + 3] = 255
     }
   }
-  return { display, width: W, height: H, scale: display.scaleFactor, rgba, windows: [{ x: at.x, y: at.y, w: iw, h: ih }] }
+  return { display, width: W, height: H, scale: display.scaleFactor, rgba }
 }
 
 const MOCK: Record<string, { ids: string[]; dst: string; role?: string; keep?: boolean }[]> = {

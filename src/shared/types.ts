@@ -168,8 +168,6 @@ export interface CaptureFrame {
   pixels: Uint8Array
   /** 截图时鼠标所在位置（CSS 像素，相对显示器） */
   cursor: { x: number; y: number } | null
-  /** 可见窗口区域（物理像素，按 z 序从上到下），用于单击选中窗口 */
-  windows: Rect[]
   targetLang: string
   autoTranslate: boolean
   displayMode: Settings['displayMode']
