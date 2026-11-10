@@ -26,7 +26,7 @@
 
 | Platform | Download | First translation |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.10](https://github.com/Misaka-ops/LavaTranslate/releases/download/v1.4.10/LavaTranslate-Setup-1.4.10.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
+| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.11](https://github.com/Misaka-ops/LavaTranslate/releases/download/v1.4.11/LavaTranslate-Setup-1.4.11.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
 
 The Windows installer is unsigned. If SmartScreen shows **Unknown publisher**, use **More info → Run anyway** after checking that the file came from the release linked above.
 

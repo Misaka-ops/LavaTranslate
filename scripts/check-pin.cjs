@@ -165,9 +165,9 @@ app.whenReady().then(async () => {
   const area = screen.getDisplayMatching(expanded).workArea
   win.setPosition(area.x + area.width - 100, area.y + area.height - 100)
   await event(win, '.pin-card', 'dblclick')
-  await wait(() => win.getBounds().width === expanded.width, 'native restored window')
+  await wait(() => Math.abs(win.getBounds().width - expanded.width) <= 1, 'native restored window')
   const restored = win.getBounds()
-  assert.equal(restored.height, expanded.height)
+  assert.ok(Math.abs(restored.height - expanded.height) <= 1, 'restore height allows DIP rounding')
   assert.deepEqual(await dimensions(win), cardSize, 'restore prior wheel zoom')
   assert.ok(restored.x + restored.width <= area.x + area.width + 1, 'restore stays on screen horizontally')
   assert.ok(restored.y + restored.height <= area.y + area.height + 1, 'restore stays on screen vertically')

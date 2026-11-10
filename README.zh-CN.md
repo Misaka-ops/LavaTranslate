@@ -26,7 +26,7 @@
 
 | 平台 | 下载入口 | 第一次翻译 |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows 安装程序（.exe），v1.4.10](https://github.com/Misaka-ops/LavaTranslate/releases/download/v1.4.10/LavaTranslate-Setup-1.4.10.exe) | 按 **Win + 空格**，拖动框选即可识别文字。双击托盘图标可配置翻译服务。 |
+| Windows 10/11 · x64 | [Windows 安装程序（.exe），v1.4.11](https://github.com/Misaka-ops/LavaTranslate/releases/download/v1.4.11/LavaTranslate-Setup-1.4.11.exe) | 按 **Win + 空格**，拖动框选即可识别文字。双击托盘图标可配置翻译服务。 |
 
 Windows 安装程序尚未签名。如果 SmartScreen 显示「未知发布者」，确认文件来自上方发布链接后，可点「更多信息 → 仍要运行」。
 
