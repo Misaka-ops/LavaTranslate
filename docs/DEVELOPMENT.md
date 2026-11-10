@@ -81,7 +81,7 @@ Windows 的 `Win + Space` 由独立线程上的低级键盘钩子处理（`win-s
 
 Windows 安装版通过 GitHub Releases 检查更新，electron-updater 自动下载 NSIS 安装包并在退出时安装；设置中的「自动更新」可以关闭 20 秒启动检查和每 4 小时轮询。
 
-安装版每 4 小时检查一次 GitHub Releases（`chengcczzjj/LavaTranslate`），在后台按块差量下载，下载完成后托盘与设置里出现「重启并更新」，不点也会在下次退出时安装。
+安装版每 4 小时检查一次 GitHub Releases（`Misaka-ops/LavaTranslate`），在后台按块差量下载，下载完成后托盘与设置里出现「重启并更新」，不点也会在下次退出时安装。
 发布新版本：`npm run release -- patch|minor|major|current`（需要 `gh auth login`），会升版本号、打包，并用 `gh release create` 上传安装包、blockmap 和 `latest.yml`，发布说明取 `docs/releases/v<版本>.md`。图标：`python scripts/make-icons.py` 一次生成 Windows 桌面（exe、托盘、设置页）的全部图标，图形定义在 `scripts/icons/lava.py`（黑底上一滴朱红到琥珀的发光熔岩，≤32px 用去掉文字的简化版），用 Electron 渲染 SVG。
 
 改名说明：旧名「Lens 截图翻译」的配置会在首次启动时从 `%APPDATA%\Lens 截图翻译` 迁移到 `%APPDATA%\LavaTranslate`。

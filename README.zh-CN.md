@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/chengcczzjj/LavaTranslate/releases/latest"><img src="https://img.shields.io/github/v/release/chengcczzjj/LavaTranslate?color=e23e9a&label=%E4%B8%8B%E8%BD%BD" alt="最新版本"></a>
-  <a href="https://github.com/chengcczzjj/LavaTranslate/releases"><img src="https://img.shields.io/github/downloads/chengcczzjj/LavaTranslate/total?color=ff8c34&label=%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="下载量"></a>
+  <a href="https://github.com/Misaka-ops/LavaTranslate/releases/latest"><img src="https://img.shields.io/github/v/release/Misaka-ops/LavaTranslate?color=e23e9a&label=%E4%B8%8B%E8%BD%BD" alt="最新版本"></a>
+  <a href="https://github.com/Misaka-ops/LavaTranslate/releases"><img src="https://img.shields.io/github/downloads/Misaka-ops/LavaTranslate/total?color=ff8c34&label=%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="下载量"></a>
 </p>
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
@@ -26,7 +26,7 @@
 
 | 平台 | 下载入口 | 第一次翻译 |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows 安装程序（.exe），v1.4.10](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.10/LavaTranslate-Setup-1.4.10.exe) | 按 **Win + 空格**，拖动框选即可识别文字。双击托盘图标可配置翻译服务。 |
+| Windows 10/11 · x64 | [Windows 安装程序（.exe），v1.4.10](https://github.com/Misaka-ops/LavaTranslate/releases/download/v1.4.10/LavaTranslate-Setup-1.4.10.exe) | 按 **Win + 空格**，拖动框选即可识别文字。双击托盘图标可配置翻译服务。 |
 
 Windows 安装程序尚未签名。如果 SmartScreen 显示「未知发布者」，确认文件来自上方发布链接后，可点「更多信息 → 仍要运行」。
 
@@ -146,4 +146,4 @@ npm run dist     # 打包 NSIS 安装程序到 dist/
 
 ---
 
-<p align="center">问题和建议欢迎提 <a href="https://github.com/chengcczzjj/LavaTranslate/issues">Issues</a></p>
+<p align="center">问题和建议欢迎提 <a href="https://github.com/Misaka-ops/LavaTranslate/issues">Issues</a></p>

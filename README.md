@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/chengcczzjj/LavaTranslate/releases/latest"><img src="https://img.shields.io/github/v/release/chengcczzjj/LavaTranslate?color=e23e9a&label=download" alt="Latest release"></a>
-  <a href="https://github.com/chengcczzjj/LavaTranslate/releases"><img src="https://img.shields.io/github/downloads/chengcczzjj/LavaTranslate/total?color=ff8c34" alt="Downloads"></a>
+  <a href="https://github.com/Misaka-ops/LavaTranslate/releases/latest"><img src="https://img.shields.io/github/v/release/Misaka-ops/LavaTranslate?color=e23e9a&label=download" alt="Latest release"></a>
+  <a href="https://github.com/Misaka-ops/LavaTranslate/releases"><img src="https://img.shields.io/github/downloads/Misaka-ops/LavaTranslate/total?color=ff8c34" alt="Downloads"></a>
 </p>
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
@@ -26,7 +26,7 @@
 
 | Platform | Download | First translation |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.10](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.10/LavaTranslate-Setup-1.4.10.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
+| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.10](https://github.com/Misaka-ops/LavaTranslate/releases/download/v1.4.10/LavaTranslate-Setup-1.4.10.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
 
 The Windows installer is unsigned. If SmartScreen shows **Unknown publisher**, use **More info → Run anyway** after checking that the file came from the release linked above.
 
@@ -149,4 +149,4 @@ The desktop app uses Electron, React and Motion. ONNX Runtime runs the local [Pa
 
 ---
 
-<p align="center">Bug reports and ideas: <a href="https://github.com/chengcczzjj/LavaTranslate/issues">Issues</a></p>
+<p align="center">Bug reports and ideas: <a href="https://github.com/Misaka-ops/LavaTranslate/issues">Issues</a></p>
